@@ -1,0 +1,60 @@
+阿里云文件操作插件
+
+
+
+参考链接
+
+ https://help.aliyun.com/zh/isi/developer-reference/nui-sdk-for-android-1?spm=a2c4g.11186623.help-menu-30413.d_3_2_1_1_1.60ae4009ENq05F#h2-xz5-4y5-mus
+
+
+安装命令
+
+ ionic cordova plugin add  https://github.com/lounai-chen/cordova-plugin-AI-speech-transcriber  --variable SECRETKEY=xxxxxx --save 
+ 
+ Android9.0以上是默认所有http请求的，需要在AndroidManifest.xml的application代码中配置如下 
+ 
+ ```
+ ndroid:usesCleartextTraffic="true"
+ ```
+ 
+
+
+
+使用案例关键代码
+
+
+var _this = this;
+
+var uploadurlfile = _this.temppath.substr(8,_this.temppath2.length - 8); //安卓路径要去掉file:///
+
+alert(uploadurlfile)
+
+this.xxxx.getOSSToken({},false).then(result => {
+
+
+
+    try{
+     aliyunOSSupload.onOssNormalPut(
+     
+         (e) => {_this.onSuccess(e)},
+         
+         (e) =>{_this.onError(e)},
+         
+         result.data,
+         
+         'oss-cn-shenzhen.aliyuncs.com',
+         
+         'xxx',
+         
+         'mp3_20191115_152830.mp3',
+         
+          uploadurlfile,
+          
+         );
+
+     }catch(e){alert(' error: '+e)}; 
+    );
+
+
+    
+

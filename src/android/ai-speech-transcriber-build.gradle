@@ -1,0 +1,12 @@
+repositories{
+    jcenter()
+    flatDir{
+        dirs 'libs'
+    }
+}
+
+dependencies {
+    //implementation 'com.alibaba:fastjson:1.2.83'
+    implementation(name: 'nuisdk-release', ext: 'aar')
+    //implementation(name: 'fastjson-1.1.46.android', ext: 'jar')
+}

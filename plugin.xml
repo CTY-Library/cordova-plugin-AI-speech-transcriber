@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
+        id="cordova-plugin-AI-speech-transcriber"
+        version="1.0.0">
+    <name>AISpeechTranscriber</name>
+    <description>基于阿里云SDK的Cordova语音转写插件</description>
+    <author>CTY-Library</author>
+    <license>MIT</license>
+    <keywords>cordova, speech, transcribe, aliyun, AI</keywords>
+    <repo>https://github.com/CTY-Library/cordova-plugin-AI-speech-transcriber</repo>
+    
+    <!-- 平台配置：Android -->
+    <platform name="android">
+        <!-- 源文件 -->
+        <source-file src="src/android/AISpeechTranscriber.java" 
+                     target-dir="src/com/plugin/aliyun/aispeech" />
+        <!-- <source-file src="src/android/com/cty/plugin/aispeech/Utils.java" 
+                 target-dir="src/com/plugin/aliyun/aispeech" />
+        <source-file src="src/android/com/cty/plugin/aispeech/Auth.java" 
+                 target-dir="src/com/plugin/aliyun/aispeech" /> -->
+        
+        <!-- 阿里云SDK依赖包 -->
+        <lib-file src="src/android/libs/nuisdk-release.aar" />
+        <lib-file src="src/android/libs/fastjson-1.1.46.android.jar" />
+
+        <!-- 权限配置 -->
+        <config-file target="AndroidManifest.xml" parent="/manifest">
+            <uses-permission android:name="android.permission.INTERNET" />
+            <uses-permission android:name="android.permission.RECORD_AUDIO" />
+            <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+            <uses-permission android:name="android.permission.RECORD_AUDIO"   />
+        </config-file>
+        
+        <!-- 构建配置 -->
+        <framework src="src/android/ai-speech-transcriber-build.gradle" custom="true" type="gradleReference" /> 
+        
+        <!-- 插件入口 -->
+        <config-file target="res/xml/config.xml" parent="/*">
+            <feature name="AISpeechTranscriber">
+                <param name="android-package" value="com.plugin.aliyun.aispeech.AISpeechTranscriber" />
+            </feature>
+        </config-file>
+    </platform>
+
+    
+    
+    <!-- 前端接口封装 -->
+    <js-module name="AISpeechTranscriber" src="www/AISpeechTranscriber.js">
+        <clobbers target="AISpeechTranscriber" />
+    </js-module>
+</plugin>
