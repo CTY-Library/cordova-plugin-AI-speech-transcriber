@@ -1,6 +1,8 @@
 package com.plugin.aliyun.aispeech;
 
 import android.Manifest;
+import android.content.Context;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
@@ -114,13 +116,22 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
     private void initSDK(org.json.JSONObject config, CallbackContext callbackContext) {
         // 解析配置参数
         try {
-            appKey = config.getString("appKey");
-            token = config.optString("token", "");
-            stsToken = config.optString("stsToken", "");
-            accessKey = config.optString("accessKey", "");
-            accessKeySecret = config.optString("accessKeySecret", "");
-            serviceUrl = config.optString("serviceUrl", serviceUrl);
+            
             isSaveAudio = config.optBoolean("saveAudio", false);
+
+            Context context = this.cordova.getActivity().getApplicationContext();
+             // 获取ApplicationInfo中的元数据
+            ApplicationInfo appInfo =  context.getPackageManager().getApplicationInfo(context.getPackageName(),
+                    PackageManager.GET_META_DATA);
+            
+            // 读取配置的参数（与plugin.xml中android:name对应）
+            appKey = appInfo.metaData.getString("com.plugin.ai.speech.APPKEY");
+            accessKey = appInfo.metaData.getString("com.plugin.ai.speech.ACCESSKEYID");
+            accessKeySecret = appInfo.metaData.getString("com.plugin.ai.speech.ACCESSKEYSECRET");            
+            token = appInfo.metaData.getString("com.plugin.ai.speech.TOKEN");
+            stsToken = appInfo.metaData.getString("com.plugin.ai.speech.STSTOKEN");
+            serviceUrl = appInfo.metaData.getString("com.plugin.ai.speech.SERVICEURL", serviceUrl);
+          
 
             // 校验必要参数
             if (TextUtils.isEmpty(appKey)) {

@@ -8,32 +8,44 @@
     <license>MIT</license>
     <keywords>cordova, speech, transcribe, aliyun, AI</keywords>
     <repo>https://github.com/CTY-Library/cordova-plugin-AI-speech-transcriber</repo>
-    
+    <!-- 插件配置参数 -->
+    <preference name="ACCESSKEYID"/>   
+    <preference name="ACCESSKEYSECRET"/>  
+    <preference name="APPKEY"/>
+    <preference name="TOKEN"/>
+    <preference name="STSTOKEN"/>
+    <preference name="SERVICEURL"/>
+    <!-- JavaScript模块 -->
+    <js-module name="AISpeechTranscriber" src="www/AISpeechTranscriber.js">
+        <clobbers target="AISpeechTranscriber" />
+    </js-module>
+
     <!-- 平台配置：Android -->
     <platform name="android">
+        <!-- 注入AI语音识别所需的Key和token到AndroidManifest.xml -->
+        <config-file target="AndroidManifest.xml" parent="/manifest/application">     
+            <meta-data android:name="com.plugin.ai.speech.ACCESSKEYID" android:value="$ACCESSKEYID" />
+            <meta-data android:name="com.plugin.ai.speech.ACCESSKEYSECRET" android:value="$ACCESSKEYSECRET" />
+            <meta-data android:name="com.plugin.ai.speech.APPKEY" android:value="$APPKEY" />
+            <meta-data android:name="com.plugin.ai.speech.TOKEN" android:value="$TOKEN" />
+            <meta-data android:name="com.plugin.ai.speech.STSTOKEN" android:value="$STSTOKEN" />
+            <meta-data android:name="com.plugin.ai.speech.SERVICEURL" android:value="$SERVICEURL" />
+        </config-file>
         <!-- 源文件 -->
         <source-file src="src/android/AISpeechTranscriber.java" 
-                     target-dir="src/com/plugin/aliyun/aispeech" />
-        <!-- <source-file src="src/android/com/cty/plugin/aispeech/Utils.java" 
-                 target-dir="src/com/plugin/aliyun/aispeech" />
-        <source-file src="src/android/com/cty/plugin/aispeech/Auth.java" 
-                 target-dir="src/com/plugin/aliyun/aispeech" /> -->
-        
+                     target-dir="src/com/plugin/aliyun/aispeech" />        
         <!-- 阿里云SDK依赖包 -->
         <lib-file src="src/android/libs/nuisdk-release.aar" />
         <lib-file src="src/android/libs/fastjson-1.1.46.android.jar" />
-
         <!-- 权限配置 -->
         <config-file target="AndroidManifest.xml" parent="/manifest">
             <uses-permission android:name="android.permission.INTERNET" />
             <uses-permission android:name="android.permission.RECORD_AUDIO" />
             <uses-permission android:name="android.permission.READ_PHONE_STATE" />
             <uses-permission android:name="android.permission.RECORD_AUDIO"   />
-        </config-file>
-        
+        </config-file>        
         <!-- 构建配置 -->
-        <framework src="src/android/ai-speech-transcriber-build.gradle" custom="true" type="gradleReference" /> 
-        
+        <framework src="src/android/ai-speech-transcriber-build.gradle" custom="true" type="gradleReference" />         
         <!-- 插件入口 -->
         <config-file target="res/xml/config.xml" parent="/*">
             <feature name="AISpeechTranscriber">
@@ -42,10 +54,26 @@
         </config-file>
     </platform>
 
-    
-    
-    <!-- 前端接口封装 -->
-    <js-module name="AISpeechTranscriber" src="www/AISpeechTranscriber.js">
-        <clobbers target="AISpeechTranscriber" />
-    </js-module>
+    <!-- iOS 平台配置 -->
+    <platform name="ios">
+        <config-file target="config.xml" parent="/*">
+            <feature name="AISpeechTranscriber">
+                <param name="ios-package" value="AISpeechTranscriber" />
+            </feature>
+        </config-file>
+        
+        <!-- 源文件 -->
+        <source-file src="src/ios/AISpeechTranscriber.m" />
+        
+        <!-- 引入阿里云SDK（需将SDK文件放入指定目录） -->
+        <framework src="src/ios/libs/AliyunSpeechTranscriber.framework" embed="true" />
+        <framework src="AVFoundation.framework" /> <!-- 音频权限依赖 -->
+        <framework src="CoreAudio.framework" />
+        <framework src="AudioToolbox.framework" />
+        
+        <!-- 权限配置 -->
+        <config-file target="*-Info.plist" parent="NSMicrophoneUsageDescription">
+            <string>需要使用麦克风进行语音转写</string>
+        </config-file>
+    </platform>
 </plugin>

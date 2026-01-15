@@ -4,10 +4,7 @@ var AISpeechTranscriber = {
     /**
      * 初始化阿里云SDK
      * @param {Object} config - 配置参数
-     * @param {string} config.accessKeyId - 阿里云AccessKeyId
-     * @param {string} config.accessKeySecret - 阿里云AccessKeySecret
-     * @param {string} config.appKey - 阿里云语音应用AppKey
-     * @param {string} [config.regionId=cn-shanghai] - 地域ID
+     * @param {string} [config.saveAudio=false] - 是否保存音频文件
      * @param {Function} success - 成功回调
      * @param {Function} error - 失败回调
      */
