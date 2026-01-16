@@ -12,8 +12,6 @@
     <preference name="ACCESSKEYID"/>   
     <preference name="ACCESSKEYSECRET"/>  
     <preference name="APPKEY"/>
-    <preference name="TOKEN"/>
-    <preference name="STSTOKEN"/>
     <preference name="SERVICEURL"/>
     <!-- JavaScript模块 -->
     <js-module name="AISpeechTranscriber" src="www/AISpeechTranscriber.js">
@@ -27,8 +25,6 @@
             <meta-data android:name="com.plugin.ai.speech.ACCESSKEYID" android:value="$ACCESSKEYID" />
             <meta-data android:name="com.plugin.ai.speech.ACCESSKEYSECRET" android:value="$ACCESSKEYSECRET" />
             <meta-data android:name="com.plugin.ai.speech.APPKEY" android:value="$APPKEY" />
-            <meta-data android:name="com.plugin.ai.speech.TOKEN" android:value="$TOKEN" />
-            <meta-data android:name="com.plugin.ai.speech.STSTOKEN" android:value="$STSTOKEN" />
             <meta-data android:name="com.plugin.ai.speech.SERVICEURL" android:value="$SERVICEURL" />
         </config-file>
         <!-- 源文件 -->
@@ -41,8 +37,9 @@
         <config-file target="AndroidManifest.xml" parent="/manifest">
             <uses-permission android:name="android.permission.INTERNET" />
             <uses-permission android:name="android.permission.RECORD_AUDIO" />
-            <uses-permission android:name="android.permission.READ_PHONE_STATE" />
-            <uses-permission android:name="android.permission.RECORD_AUDIO"   />
+            <uses-permission android:name="android.permission.READ_PHONE_STATE" /> 
+            <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />   
+            <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />            
         </config-file>        
         <!-- 构建配置 -->
         <framework src="src/android/ai-speech-transcriber-build.gradle" custom="true" type="gradleReference" />         
