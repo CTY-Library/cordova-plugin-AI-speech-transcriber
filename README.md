@@ -15,15 +15,45 @@ AI语音转文字插件,基于阿里云的SDK
 
 安装命令
 ```
- ionic cordova plugin add   https://github.com/CTY-Library/cordova-plugin-AI-speech-transcriber --variable APPKEY=xxxxxx  --variable ACCESSKEYID=xxxxxx --variable   ACCESSKEYSECRET=xxxxxx  --variable TOKEN=xxxxxx  --variable STSTOKEN=xxxxxx  --variable SERVICEURL=xxxxxx --save
+ ionic cordova plugin add   https://github.com/CTY-Library/cordova-plugin-AI-speech-transcriber --variable APPKEY=xxxxxx  --variable ACCESSKEYID=xxxxxx --variable   ACCESSKEYSECRET=xxxxxx   --variable SERVICEURL=xxxxxx --save
 ```
 
 本地安装 
  ```
- ionic cordova plugin add  F:\app\cordova-plugin-AI-speech-transcriber --variable APPKEY=1ww23  --variable ACCESSKEYID=56rz8 --variable   ACCESSKEYSECRET=fffwx  --variable TOKEN=ee2se  --variable STSTOKEN=1213x  --variable SERVICEURL=467gr  
+ ionic cordova plugin add  F:\app\cordova-plugin-AI-speech-transcriber --variable APPKEY=1ww23  --variable ACCESSKEYID=56rz8 --variable   ACCESSKEYSECRET=fffwx   --variable SERVICEURL=467gr  
  ```
- 
 
+Android平台配置
+```
+// 新增：解决META-INF文件重复冲突
+    packagingOptions {
+        // 处理netty版本文件冲突：只保留第一个找到的文件
+        pickFirst 'META-INF/io.netty.versions.properties'
+
+        // 忽略重复的 INDEX.LIST 文件
+        exclude 'META-INF/INDEX.LIST'
+        // 可选：同时忽略其他常见的重复META文件（避免后续报错）
+        exclude 'META-INF/DEPENDENCIES'
+        exclude 'META-INF/LICENSE'
+        exclude 'META-INF/LICENSE.txt'
+        exclude 'META-INF/NOTICE'
+        exclude 'META-INF/NOTICE.txt'
+        exclude 'META-INF/AL2.0'
+        exclude 'META-INF/LGPL2.1'
+        exclude 'META-INF/LICENSE.md'
+        exclude 'META-INF/NOTICE.md'
+    }
+
+
+    dependencies {
+    // 其他已有的依赖（implementation、api等）
+    
+    // 添加JAXB兼容依赖，解决DatatypeConverter缺失问题
+ 
+    // 备选方案（如果上面的依赖有冲突，可使用这个轻量级替代）
+     implementation 'org.glassfish.jaxb:jaxb-runtime:2.3.8'
+}
+```
 
 
 使用案例关键代码

@@ -28,11 +28,15 @@
             <meta-data android:name="com.plugin.ai.speech.SERVICEURL" android:value="$SERVICEURL" />
         </config-file>
         <!-- 源文件 -->
-        <source-file src="src/android/AISpeechTranscriber.java" 
-                     target-dir="src/com/plugin/aliyun/aispeech" />        
+        <source-file src="src/android/AISpeechTranscriber.java"  target-dir="src/com/plugin/aliyun/aispeech" />    
+        <source-file src="src/android/AccessToken.java"    target-dir="src/com/plugin/aliyun/aispeech" />   
+        <source-file src="src/android/HttpRequest.java"     target-dir="src/com/plugin/aliyun/aispeech" />   
+        <source-file src="src/android/HttpResponse.java"    target-dir="src/com/plugin/aliyun/aispeech" />   
+        <source-file src="src/android/HttpUtil.java"    target-dir="src/com/plugin/aliyun/aispeech" />   
+        <source-file src="src/android/Signer.java"     target-dir="src/com/plugin/aliyun/aispeech" />  
+
         <!-- 阿里云SDK依赖包 -->
         <lib-file src="src/android/libs/nuisdk-release.aar" />
-        <lib-file src="src/android/libs/fastjson-1.1.46.android.jar" />
         <!-- 权限配置 -->
         <config-file target="AndroidManifest.xml" parent="/manifest">
             <uses-permission android:name="android.permission.INTERNET" />

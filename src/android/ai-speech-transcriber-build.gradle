@@ -6,8 +6,12 @@ repositories{
 }
 
 dependencies {
-    //implementation 'com.alibaba:fastjson:1.2.83'
+   
     implementation(name: 'nuisdk-release', ext: 'aar')
-    implementation 'com.alibaba.nls:nls-sdk-common:2.1.6'
-    //implementation(name: 'fastjson-1.1.46.android', ext: 'jar')
+    implementation 'com.alibaba:fastjson:1.2.83' // 推荐使用稳定版本，避免过高版本的兼容问题
+
+    // implementation 'com.alibaba:fastjson:1.2.83'    
+    // implementation 'com.alibaba.nls:nls-sdk-common:2.1.6'
+    // implementation(name: 'fastjson-1.1.46.android', ext: 'jar')
+
 }

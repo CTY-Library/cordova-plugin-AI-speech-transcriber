@@ -13,32 +13,32 @@ import android.os.HandlerThread;
 import android.text.TextUtils;
 import android.util.Log;
 
+import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 
-//import com.alibaba.fastjson.JSON;
-//import com.alibaba.fastjson.JSONException;
-//import com.alibaba.fastjson.JSONObject;
-//import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONException;
+import com.alibaba.fastjson.JSONObject;
 import com.alibaba.idst.nui.AsrResult;
 import com.alibaba.idst.nui.Constants;
 import com.alibaba.idst.nui.INativeNuiCallback;
 import com.alibaba.idst.nui.KwsResult;
 import com.alibaba.idst.nui.NativeNui;
-import com.alibaba.nls.client.AccessToken;
 
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
 import org.apache.cordova.PermissionHelper;
 import org.apache.cordova.PluginResult;
 import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
+//import org.json.JSONException;
+//import org.json.JSONObject;
 
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
@@ -131,6 +131,20 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
     private void initSDK(org.json.JSONObject config, CallbackContext callbackContext) {
         // 解析配置参数
         try {
+            // 1 . 创建调试目录
+            debugPath = Objects.requireNonNull(cordova.getActivity().getExternalCacheDir()).getAbsolutePath() + "/speech_debug";
+            CommonUtils.createDir(debugPath);
+
+            // 第二步：拷贝Assets配置文件
+            if (CommonUtils.copyAssetsData(this.cordova.getActivity(),debugPath)) {
+                Log.i(TAG, "copy assets data done");
+                // 第三步：拷贝成功后初始化NUI SDK
+
+            }
+            else {
+                Log.i(TAG, "copy assets failed");
+                //return;
+            }
 
             isSaveAudio = config.optBoolean("saveAudio", false);
 
@@ -147,10 +161,18 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
 //            stsToken = appInfo.metaData.getString("com.plugin.ai.speech.STSTOKEN");
             serviceUrl = appInfo.metaData.getString("com.plugin.ai.speech.SERVICEURL", serviceUrl);
 
-            AccessToken accessToken = new AccessToken(accessKey, accessKeySecret);
-            accessToken.apply();
-            token = accessToken.getToken();
-            long expireTime = accessToken.getExpireTime();
+            // 使用自定义AccessToken类生成Token
+            AccessToken accessToken = new AccessToken(accessKey, accessKeySecret, null);
+            try {
+                accessToken.apply();
+                token = accessToken.getToken();
+                long expireTime = accessToken.getExpireTime();
+                Log.i(TAG, "Token生成成功，过期时间：" + expireTime);
+            } catch (IOException e) {
+                Log.e(TAG, "Token生成失败：" + e.getMessage());
+                callbackContext.error("Token生成失败：" + e.getMessage());
+                return;
+            }
 
             // 校验必要参数
             if (TextUtils.isEmpty(appKey)) {
@@ -159,15 +181,11 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
             }
 
             // 初始化异步线程
-            if (workerThread == null || !workerThread.isAlive()) {
-                workerThread = new HandlerThread("SpeechTranscriber-Worker");
-                workerThread.start();
-                workerHandler = new Handler(workerThread.getLooper());
-            }
-
-            // 创建调试目录
-            debugPath = cordova.getActivity().getExternalCacheDir().getAbsolutePath() + "/speech_debug";
-            CommonUtils.createDir(debugPath);
+//            if (workerThread == null || !workerThread.isAlive()) {
+//                workerThread = new HandlerThread("SpeechTranscriber-Worker");
+//                workerThread.start();
+//                workerHandler = new Handler(workerThread.getLooper());
+//            }
 
             // 检查文件读写权限
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -188,37 +206,9 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                 }
 
 
-//                if (cordova.getActivity().checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-//                    // 动态请求存储权限
-//                    PermissionHelper.requestPermission(this, PERMISSION_WRITE_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE);
-//                    return;
-//                }
-//
-//                if (cordova.getActivity().checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-//                    // 动态请求存储权限
-//                    PermissionHelper.requestPermission(this, READ_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE);
-//                    return;
-//                }
-//
-//                // 检查录音权限
-//                if (cordova.getActivity().checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-//                    // 动态请求存储权限
-//                    PermissionHelper.requestPermission(this, PERMISSION_RECORD_AUDIO, Manifest.permission.RECORD_AUDIO);
-//                    return;
-//                }
-
             }
 
-
-
-            // 拷贝 SDK 资源文件并验证结果
-//            if (!CommonUtils.copyAssetsData(cordova.getActivity())) {
-//                callbackContext.error("拷贝 SDK 资源文件失败，错误码240021");
-//                return;
-//            }
-
-            Log.i(TAG, "SDK资源文件拷贝完成");
-
+            //初始化SDK
             initSDKAfterPermissionGranted();
 
         } catch (Exception e) {
@@ -260,7 +250,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
             initAudioRecorder();
 
             // 异步启动转写
-            workerHandler.post(() -> {
+           // workerHandler.post(() -> {
                 try {
                     // 设置转写参数
                     String asrParams = generateAsrParams();
@@ -285,7 +275,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                     sendCallback("error", "启动转写异常：" + e.getMessage());
                     Log.e(TAG, "启动转写异常", e);
                 }
-            });
+         //   });
         } else {
             Log.e(TAG, "donnot get RECORD_AUDIO permission!");
             sendCallback("error", "未获得录音权限，无法正常运行。请通过设置界面重新开启权限。");
@@ -364,20 +354,20 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
      * 生成 SDK 初始化参数
      */
     private String generateInitParams() throws JSONException {
-        JSONObject params = new JSONObject();
+        //JSONObject params = new JSONObject();
 
         // 设置认证参数
-        Auth.GetTicketMethod authMethod = getAuthMethod();
-        JSONObject authParams = Auth.getTicket(authMethod);
-
-//        if (!authParams.containsKey("token") && !authParams.containsKey("access_key")) {
-//            throw new RuntimeException("未获取到有效认证凭证");
-//        }
+       // Auth.GetTicketMethod authMethod = Auth.GetTicketMethod. GET_TOKEN_IN_CLIENT_FOR_ONLINE_FEATURES ;// getAuthMethod(); GET_TOKEN_FROM_SERVER_FOR_ONLINE_FEATURES
+        JSONObject authParams = new JSONObject();
+        authParams.put("token", token);
+//        authParams.put("appkey", appKey);
+//        authParams.put("ak_id", accessKey);
+//        authParams.put("ak_secret", accessKeySecret);
 
         // 基础配置
         authParams.put("device_id", "android_" + Build.SERIAL);
         authParams.put("url", serviceUrl);
-        authParams.put("workspace", CommonUtils.getModelPath(cordova.getActivity()));
+        authParams.put("workspace", CommonUtils.getModelPath(cordova.getActivity())); // V2.6.2版本开始纯云端功能可不设置workspace
         authParams.put("save_wav", "false");
         authParams.put("debug_path", debugPath);
         authParams.put("max_log_file_size", 50 * 1024 * 1024);
@@ -387,29 +377,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
         return authParams.toString();
     }
 
-    /**
-     * 获取认证方式
-     */
-    private Auth.GetTicketMethod getAuthMethod() {
-        Auth.GetTicketMethod method = Auth.GetTicketMethod.GET_TOKEN_FROM_SERVER_FOR_ONLINE_FEATURES;
 
-        Auth.setAppKey(appKey);
-        Auth.setToken(token);
-        Auth.setAccessKey(accessKey);
-        Auth.setAccessKeySecret(accessKeySecret);
-        Auth.setStsToken(stsToken);
-
-        if (!TextUtils.isEmpty(accessKey) && !TextUtils.isEmpty(accessKeySecret)) {
-            method = TextUtils.isEmpty(stsToken)
-                    ? Auth.GetTicketMethod.GET_ACCESS_IN_CLIENT_FOR_ONLINE_FEATURES
-                    : Auth.GetTicketMethod.GET_STS_ACCESS_IN_CLIENT_FOR_ONLINE_FEATURES;
-        } else if (!TextUtils.isEmpty(token)) {
-            method = Auth.GetTicketMethod.GET_TOKEN_IN_CLIENT_FOR_ONLINE_FEATURES;
-        }
-
-        Log.i(TAG, "使用认证方式：" + method);
-        return method;
-    }
 
     /**
      * 生成转写参数
@@ -585,15 +553,8 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
 
     // 权限获取后继续初始化
     private void initSDKAfterPermissionGranted() {
-        workerHandler.post(() -> {
+       // workerHandler.post(() -> {
             try {
-                // 拷贝 SDK 资源文件并验证结果
-//                if (!CommonUtils.copyAssetsData(cordova.getActivity())) {
-//                    transcribeCallback.error("拷贝 SDK 资源文件失败，错误码240021");
-//                    return;
-//                }
-
-                Log.i(TAG, "SDK资源文件拷贝完成");
 
                 // 生成初始化参数
                 String initParams = generateInitParams();
@@ -619,7 +580,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                 //transcribeCallback.error("SDK 初始化异常：" + e.getMessage());
                 Log.e(TAG, "SDK 初始化异常", e);
             }
-        });
+        //});
     }
 
     /**
@@ -746,49 +707,18 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
             GET_STS_ACCESS_IN_CLIENT_FOR_ONLINE_FEATURES
         }
 
-        public static void setAppKey(String key) {
-            appKey = key;
-        }
-
-        public static void setToken(String t) {
+        public   void setToken(String t) {
             token = t;
         }
 
-        public static void setAccessKey(String ak) {
+        public   void setAccessKey(String ak) {
             accessKey = ak;
         }
 
-        public static void setAccessKeySecret(String sk) {
-            accessKeySecret = sk;
-        }
-
-        public static void setStsToken(String st) {
+        public   void setStsToken(String st) {
             stsToken = st;
         }
 
-        public static JSONObject getTicket(GetTicketMethod method) throws JSONException {
-            JSONObject ticket = new JSONObject();
-            ticket.put("appkey", appKey);
-
-            switch (method) {
-                case GET_TOKEN_IN_CLIENT_FOR_ONLINE_FEATURES:
-                    ticket.put("token", token);
-                    break;
-                case GET_ACCESS_IN_CLIENT_FOR_ONLINE_FEATURES:
-                    ticket.put("access_key", accessKey);
-                    ticket.put("access_key_secret", accessKeySecret);
-                    break;
-                case GET_STS_ACCESS_IN_CLIENT_FOR_ONLINE_FEATURES:
-                    ticket.put("access_key", accessKey);
-                    ticket.put("access_key_secret", accessKeySecret);
-                    ticket.put("sts_token", stsToken);
-                    break;
-                default:
-                    ticket.put("token", "");
-                    break;
-            }
-            return ticket;
-        }
 
         public static JSONObject refreshTokenIfNeed(JSONObject params, long expireTime) throws JSONException {
             // 此处可扩展 token 刷新逻辑
@@ -796,120 +726,5 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
         }
     }
 
-    // ====================== 工具类 ======================
-    private static class CommonUtils {
-//        public static boolean copyAssetsData(android.content.Context context) {
-//            try {
-//                Log.i(TAG, "开始拷贝SDK资源文件");
-//
-//                // 获取assets中的资源文件列表
-//                String[] assets = context.getAssets().list("");
-//                if (assets == null || assets.length == 0) {
-//                    Log.w(TAG, "Assets目录为空，跳过资源拷贝");
-//                    return true; // 纯云端功能可不需要资源文件
-//                }
-//
-//                Log.i(TAG, "Assets目录包含 " + assets.length + " 个文件");
-//
-//                // 目标目录
-//                String targetDir = getModelPath(context);
-//                java.io.File dir = new java.io.File(targetDir);
-//                if (!dir.exists()) {
-//                    boolean created = dir.mkdirs();
-//                    Log.i(TAG, "创建目标目录: " + targetDir + ", 结果: " + created);
-//                    if (!created) {
-//                        Log.e(TAG, "无法创建目标目录: " + targetDir);
-//                        return false;
-//                    }
-//                }
-//
-//                // 检查目录写权限
-//                if (!dir.canWrite()) {
-//                    Log.e(TAG, "目标目录无写权限: " + targetDir);
-//                    return false;
-//                }
-//
-//                int successCount = 0;
-//                int skipCount = 0;
-//
-//                // 拷贝每个资源文件
-////                for (String asset : assets) {
-////                    // 跳过目录和特殊文件
-////                    if (asset.contains(".") || asset.equalsIgnoreCase("images") ||
-////                            asset.equalsIgnoreCase("sounds") || asset.equalsIgnoreCase("webkit")) {
-////                        skipCount++;
-////                        continue;
-////                    }
-////
-////                    if (copyAssetFile(context, asset, targetDir + "/" + asset)) {
-////                        successCount++;
-////                    } else {
-////                        Log.e(TAG, "拷贝文件失败: " + asset);
-////                        return false;
-////                    }
-////                }
-//
-//                Log.i(TAG, "SDK资源文件拷贝完成 - 成功: " + successCount + ", 跳过: " + skipCount);
-//                return true;
-//            } catch (IOException e) {
-//                Log.e(TAG, "拷贝SDK资源文件失败 - IO异常", e);
-//                return false;
-//            } catch (Exception e) {
-//                Log.e(TAG, "拷贝SDK资源文件失败 - 未知异常", e);
-//                return false;
-//            }
-//        }
-//
-//        public static boolean copyAssetFile(android.content.Context context, String assetName, String targetPath) {
-//            try (java.io.InputStream in = context.getAssets().open(assetName);
-//                 java.io.OutputStream out = new java.io.FileOutputStream(targetPath)) {
-//
-//                byte[] buffer = new byte[1024];
-//                int length;
-//                while ((length = in.read(buffer)) > 0) {
-//                    out.write(buffer, 0, length);
-//                }
-//
-//                Log.d(TAG, "拷贝资源文件: " + assetName + " -> " + targetPath);
-//                return true;
-//            } catch (IOException e) {
-//                Log.e(TAG, "拷贝单个资源文件失败: " + assetName, e);
-//                return false;
-//            }
-//        }
 
-        public static void createDir(String path) {
-            java.io.File dir = new java.io.File(path);
-            if (!dir.exists()) {
-                dir.mkdirs();
-            }
-        }
-
-        public static String getModelPath(android.content.Context context) {
-            return context.getFilesDir().getAbsolutePath();
-        }
-
-        public static String getMsgWithErrorCode(int code, String action) {
-            // 映射错误码到提示信息（参考阿里云 SDK 文档）
-            Map<Integer, String> errorMap = new HashMap<>();
-            errorMap.put(Constants.NuiResultCode.SUCCESS, "成功");
-            errorMap.put(140001, "引擎未创建, 请检查是否成功初始化");
-            errorMap.put(140008, "鉴权失败, 请关注日志中详细失败原因");
-            errorMap.put(140011, "当前方法调用不符合当前状态");
-            errorMap.put(140013, "当前方法调用不符合当前状态");
-            errorMap.put(144003, "token过期或无效, 请检查token是否有效");
-            errorMap.put(144006, "云端返回未分类错误");
-            errorMap.put(240005, "设置的参数不正确或初始化参数无效");
-            errorMap.put(240011, "SDK未成功初始化");
-            errorMap.put(240052, "2s未传入音频数据，请检查录音权限或录音模块");
-            errorMap.put(240063, "SSL错误，可能为SSL建连失败");
-            errorMap.put(240068, "403 Forbidden, token无效或者过期");
-            errorMap.put(240070, "鉴权失败, 请查看日志确定具体问题");
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                return errorMap.getOrDefault(code, action + "失败，未知错误");
-            }
-            return action;
-        }
-    }
 }
