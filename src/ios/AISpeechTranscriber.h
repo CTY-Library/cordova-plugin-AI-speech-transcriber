@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import <Cordova/CDV.h>
 #import <AVFoundation/AVFoundation.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -65,7 +66,7 @@ typedef NS_ENUM(NSInteger, AISpeechTranscriberState) {
 /**
  * AI语音转写核心类
  */
-@interface AISpeechTranscriber : NSObject
+@interface AISpeechTranscriber : CDVPlugin
 
 /** 代理对象 */
 @property (nonatomic, weak, nullable) id<AISpeechTranscriberDelegate> delegate;
@@ -77,6 +78,13 @@ typedef NS_ENUM(NSInteger, AISpeechTranscriberState) {
 @property (nonatomic, copy) NSString *language;
 /** 超时时间（秒），默认30秒 */
 @property (nonatomic, assign) NSTimeInterval timeout;
+
+/** 配置参数 */
+@property (nonatomic, strong, nullable) NSDictionary *config;
+/** 当前是否正在转写 */
+@property (nonatomic, assign) BOOL isTranscribing;
+/** 回调ID（用于持续返回转写结果） */
+@property (nonatomic, copy, nullable) NSString *transcribeCallbackId;
 
 /**
  * 单例方法
@@ -124,6 +132,10 @@ typedef NS_ENUM(NSInteger, AISpeechTranscriberState) {
  */
 - (instancetype)init NS_UNAVAILABLE;
 + (instancetype)new NS_UNAVAILABLE;
+
+- (void)terminateNui;
+- (NSString*) genInitParams;
+- (NSString*) genStartParams;
 
 @end
 

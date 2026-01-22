@@ -1,54 +1,110 @@
 #import <Cordova/CDV.h>
-// 引入阿里云语音转写SDK头文件（需根据实际SDK调整）
-#import <AliyunOSSiOS/AliyunOSSiOS.h>
-#import <SpeechTranscriber/SpeechTranscriber.h>
+#import <AISpeechTranscriber.h>
+#import <Foundation/Foundation.h>
+#define DEBUG_MODE
+#import "nuisdk.framework/Headers/NeoNui.h"
+#import "NuiSdkUtils.h"
 
-@interface AISpeechTranscriber : CDVPlugin
+#import <AudioToolbox/AudioToolbox.h>
+#include <sys/time.h>
+#include <time.h>
 
-// 阿里云语音转写核心实例
-@property (nonatomic, strong) SpeechTranscriber *transcriber;
-// 配置参数
-@property (nonatomic, strong) NSDictionary *config;
-// 当前是否正在转写
-@property (nonatomic, assign) BOOL isTranscribing;
-// 回调ID（用于持续返回转写结果）
-@property (nonatomic, copy) NSString *transcribeCallbackId;
+#define SCREEN_WIDTH_BASE 375
+#define SCREEN_HEIGHT_BASE 667
 
-// 初始化SDK
-- (void)init:(CDVInvokedUrlCommand *)command;
-// 启动语音转写
-- (void)startTranscribe:(CDVInvokedUrlCommand *)command;
-// 停止语音转写
-- (void)stopTranscribe:(CDVInvokedUrlCommand *)command;
-// 释放SDK资源
-- (void)release:(CDVInvokedUrlCommand *)command;
+static BOOL save_wav = NO;
+static BOOL save_log = NO;
+
+@interface AISpeechTranscriber : CDVPlugin <NeoNuiSdkDelegate> {
+    // 阿里云SDK核心实例
+    NeoNui *nui;
+    // 工具类
+    NuiSdkUtils *utils;
+    // 录音数据缓存
+    NSMutableData *recordedVoiceData;
+    // 当前任务ID
+    NSString *currentTaskId;
+    // 音频控制器
+    id audioController;
+    
+    // Cordova相关属性
+    NSDictionary *config;
+    BOOL isTranscribing;
+    NSString *transcribeCallbackId;
+    NSString *mserviceurl;
+    NSString *mappkey;
+}
 
 @end
 
 @implementation AISpeechTranscriber
 
+- (void)pluginInitialize {
+    CDVViewController *viewController = (CDVViewController *)self.viewController;
+    mserviceurl = [viewController.settings objectForKey:@"serviceurl"];//获取插件的SECRET_KEY
+    mappkey = [viewController.settings objectForKey:@"appkey"];//获取插件的APPKEY
+}
+
+// 属性访问方法
+- (NSDictionary *)config {
+    return config;
+}
+
+- (void)setConfig:(NSDictionary *)newConfig {
+    config = newConfig;
+}
+
+- (BOOL)isTranscribing {
+    return isTranscribing;
+}
+
+- (void)setIsTranscribing:(BOOL)newIsTranscribing {
+    isTranscribing = newIsTranscribing;
+}
+
+- (NSString *)transcribeCallbackId {
+    return transcribeCallbackId;
+}
+
+- (void)setTranscribeCallbackId:(NSString *)newTranscribeCallbackId {
+    transcribeCallbackId = newTranscribeCallbackId;
+}
+
+- (void)pluginInitialize {
+    [super pluginInitialize];
+    NSLog(@"AISpeechTranscriber plugin initialized");
+}
+
+#pragma mark - Cordova Plugin Methods
+
 - (void)init:(CDVInvokedUrlCommand *)command {
     CDVPluginResult *pluginResult = nil;
-    self.config = command.arguments[0];
+    NSDictionary *config = command.arguments[0];
     
     @try {
-        // 1. 解析配置参数
-        BOOL saveAudio = [[self.config objectForKey:@"saveAudio"] boolValue];
-        // 补充阿里云SDK必要配置（需从config中获取，如appKey、accessKey等，需你根据实际配置补充）
-        NSString *appKey = [self.config objectForKey:@"appKey"];
-        NSString *accessKeyId = [self.config objectForKey:@"accessKeyId"];
-        NSString *accessKeySecret = [self.config objectForKey:@"accessKeySecret"];
+        // 解析配置参数
+        BOOL saveAudio = [config objectForKey:@"saveAudio"] ? [[config objectForKey:@"saveAudio"] boolValue] : NO;
+       // NSString *appKey = [config objectForKey:@"appKey"];
+        NSString *token = [config objectForKey:@"token"];
+        NSString *accessKey = [config objectForKey:@"accessKey"];
+        NSString *accessKeySecret = [config objectForKey:@"accessKeySecret"];
+        NSString *stsToken = [config objectForKey:@"stsToken"];
+        NSString *serviceUrl = [config objectForKey:@"serviceUrl"];
         
-        // 2. 初始化阿里云语音转写实例
-        self.transcriber = [[SpeechTranscriber alloc] init];
-        // 设置SDK配置（需根据阿里云官方文档调整）
-        [self.transcriber setAppKey:appKey];
-        [self.transcriber setAccessKeyId:accessKeyId];
-        [self.transcriber setAccessKeySecret:accessKeySecret];
-        [self.transcriber setSaveAudio:saveAudio]; // 是否保存音频
+        // 保存配置
+        self.config = config;
         
-        // 3. 设置代理（用于接收转写回调）
-        self.transcriber.delegate = self;
+        // 初始化工具类
+        utils = [[NuiSdkUtils alloc] init];
+        
+        // 初始化SDK实例
+        [self initNuiWithAppKey:mappkey 
+                        token:token 
+                     accessKey:accessKey 
+                accessKeySecret:accessKeySecret 
+                      stsToken:stsToken 
+                     serviceUrl:mserviceurl 
+                     saveAudio:saveAudio];
         
         // 初始化成功
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"SDK初始化成功"];
@@ -71,13 +127,19 @@
             return;
         }
         
-        // 启动语音转写
-        [self.transcriber startTranscribing];
-        self.isTranscribing = YES;
+        // 检查麦克风权限
+        [self checkMicrophonePermissionWithCompletion:^(BOOL granted) {
+            if (!granted) {
+                CDVPluginResult *errorResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"未获得录音权限，无法正常运行。请通过设置界面重新开启权限。"];
+                [self.commandDelegate sendPluginResult:errorResult callbackId:command.callbackId];
+                return;
+            }
+            
+            // 权限获取成功，启动转写
+            [self performStartTranscription:command];
+        }];
         
-        // 返回启动成功，并设置回调为持续回调（用于接收实时转写结果）
-        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"转写已启动"];
-        [pluginResult setKeepCallbackAsBool:YES];
+        return;
     } @catch (NSException *exception) {
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:[NSString stringWithFormat:@"启动转写失败：%@", exception.reason]];
     }
@@ -95,13 +157,11 @@
             return;
         }
         
-        // 停止语音转写
-        [self.transcriber stopTranscribing];
-        self.isTranscribing = NO;
+        // 停止转写
+        [self performStopTranscription];
         
-        // 停止成功，结束持续回调
+        // 停止成功
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"转写已停止"];
-        [pluginResult setKeepCallbackAsBool:NO];
     } @catch (NSException *exception) {
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:[NSString stringWithFormat:@"停止转写失败：%@", exception.reason]];
     }
@@ -114,14 +174,7 @@
     CDVPluginResult *pluginResult = nil;
     
     @try {
-        // 释放SDK资源
-        if (self.transcriber) {
-            [self.transcriber releaseResources];
-            self.transcriber = nil;
-            self.config = nil;
-            self.isTranscribing = NO;
-            self.transcribeCallbackId = nil;
-        }
+        [self terminateNui];
         
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"SDK资源已释放"];
     } @catch (NSException *exception) {
@@ -131,34 +184,321 @@
     [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
 }
 
-#pragma mark - SpeechTranscriberDelegate（阿里云转写代理回调）
-- (void)onTranscriptionResult:(NSString *)result isFinal:(BOOL)isFinal {
-    // 实时返回转写结果给JS
-    if (self.transcribeCallbackId) {
-        NSDictionary *resultDict = @{
-            @"text": result,
-            @"isFinal": @(isFinal) // 是否是最终结果
-        };
-        CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:resultDict];
-        [pluginResult setKeepCallbackAsBool:YES]; // 保持回调，持续返回结果
-        [self.commandDelegate sendPluginResult:pluginResult callbackId:self.transcribeCallbackId];
+#pragma mark - Private Methods
+
+- (void)initNuiWithAppKey:(NSString *)appKey 
+                   token:(NSString *)token 
+                accessKey:(NSString *)accessKey 
+          accessKeySecret:(NSString *)accessKeySecret 
+                stsToken:(NSString *)stsToken 
+               serviceUrl:(NSString *)serviceUrl 
+               saveAudio:(BOOL)saveAudio {
+    
+    if (nui == NULL) {
+        nui = [NeoNui get_instance];
+        nui.delegate = self;
+    }
+    
+    // 设置全局保存选项
+    save_wav = saveAudio;
+    save_log = saveAudio;
+    
+    // 请注意此处的参数配置，其中账号相关需要按照genInitParams的说明填入后才可访问服务
+    NSString *initParam = [self genInitParamsWithAppKey:appKey 
+                                          token:token 
+                                       accessKey:accessKey 
+                                 accessKeySecret:accessKeySecret 
+                                       stsToken:stsToken 
+                                      serviceUrl:serviceUrl];
+    
+    [nui nui_initialize:[initParam UTF8String] logLevel:NUI_LOG_LEVEL_DEBUG saveLog:save_log];
+    NSString *parameters = [self genParams];
+    [nui nui_set_params:[parameters UTF8String]];
+    
+    NSLog(@"SDK initialized successfully");
+}
+
+- (void)performStartTranscription:(CDVInvokedUrlCommand *)command {
+    if (nui != nil) {
+        // 生成对话参数
+        NSString *parameters = [self genDialogParams];
         
-        // 如果是最终结果，结束持续回调
-        if (isFinal) {
-            [pluginResult setKeepCallbackAsBool:NO];
-            [self.commandDelegate sendPluginResult:pluginResult callbackId:self.transcribeCallbackId];
-            self.isTranscribing = NO;
+        // 启动实时转写
+        int ret = [nui nui_dialog_start:MODE_P2T dialogParam:[parameters UTF8String]];
+        
+        if (ret == 0) {
+            self.isTranscribing = YES;
+            
+            // 返回启动成功，并设置回调为持续回调
+            CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"实时转写已启动"];
+            [pluginResult setKeepCallbackAsBool:YES];
+            [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+        } else {
+            CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR 
+                                                              messageAsString:[NSString stringWithFormat:@"启动转写失败，错误码：%d", ret]];
+            [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
         }
+    } else {
+        CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"SDK未初始化"];
+        [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
     }
 }
 
-- (void)onTranscriptionError:(NSError *)error {
-    // 转写错误回调
-    if (self.transcribeCallbackId) {
-        CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:[NSString stringWithFormat:@"转写错误：%@", error.localizedDescription]];
-        [pluginResult setKeepCallbackAsBool:NO];
-        [self.commandDelegate sendPluginResult:pluginResult callbackId:self.transcribeCallbackId];
+- (void)performStopTranscription {
+    if (nui != nil) {
+        [nui nui_dialog_cancel:NO];
         self.isTranscribing = NO;
+        recordedVoiceData = nil;
+    }
+}
+
+- (void)terminateNui {
+    NSLog(@"terminateNui");
+    if (nui != nil) {
+        [nui nui_release];
+        nui.delegate = nil;
+        nui = nil;
+    }
+    recordedVoiceData = nil;
+    utils = nil;
+    self.isTranscribing = NO;
+    self.transcribeCallbackId = nil;
+}
+
+- (void)dealloc {
+    NSLog(@"AISpeechTranscriber dealloc");
+    [self terminateNui];
+}
+
+#pragma mark - Microphone Permission
+
+- (void)checkMicrophonePermissionWithCompletion:(void (^)(BOOL granted))completion {
+    AVAudioSessionRecordPermission permission = [[AVAudioSession sharedInstance] recordPermission];
+    
+    switch (permission) {
+        case AVAudioSessionRecordPermissionGranted:
+            if (completion) completion(YES);
+            break;
+        case AVAudioSessionRecordPermissionDenied:
+            if (completion) completion(NO);
+            break;
+        case AVAudioSessionRecordPermissionUndetermined:
+            [[AVAudioSession sharedInstance] requestRecordPermission:^(BOOL granted) {
+                if (completion) completion(granted);
+            }];
+            break;
+        default:
+            if (completion) completion(NO);
+            break;
+    }
+}
+
+#pragma mark - Parameter Generation Methods
+
+- (NSString*)genInitParamsWithAppKey:(NSString *)appKey 
+                            token:(NSString *)token 
+                         accessKey:(NSString *)accessKey 
+                   accessKeySecret:(NSString *)accessKeySecret 
+                         stsToken:(NSString *)stsToken 
+                        serviceUrl:(NSString *)serviceUrl {
+    
+    NSString *debug_path = [utils createDir];
+    
+    NSMutableDictionary *ticketJsonDict = [NSMutableDictionary dictionary];
+    
+    // 设置认证信息
+    if (token && token.length > 0) {
+        [ticketJsonDict setObject:token forKey:@"token"];
+    } else if (accessKey && accessKey.length > 0 && accessKeySecret && accessKeySecret.length > 0) {
+        [ticketJsonDict setObject:accessKey forKey:@"access_key"];
+        [ticketJsonDict setObject:accessKeySecret forKey:@"access_key_secret"];
+        if (stsToken && stsToken.length > 0) {
+            [ticketJsonDict setObject:stsToken forKey:@"sts_token"];
+        }
+    }
+    
+    [ticketJsonDict setObject:appKey forKey:@"appkey"];
+    
+    // 设置服务URL
+    if (serviceUrl && serviceUrl.length > 0) {
+        [ticketJsonDict setObject:serviceUrl forKey:@"url"];
+    } else {
+        [ticketJsonDict setObject:@"wss://nls-gateway.cn-shanghai.aliyuncs.com:443/ws/v1" forKey:@"url"];
+    }
+    
+    // 工作目录路径，SDK从该路径读取配置文件
+    // [ticketJsonDict setObject:bundlePath forKey:@"workspace"]; // V2.6.2版本开始纯云端功能可不设置workspace
+    
+    // 当初始化SDK时的save_log参数取值为true时，该参数生效。表示是否保存音频debug，该数据保存在debug目录中，需要确保debug_path有效可写
+    [ticketJsonDict setObject:save_wav ? @"true" : @"false" forKey:@"save_wav"];
+    // debug目录。当初始化SDK时的save_log参数取值为true时，该目录用于保存中间音频文件
+    [ticketJsonDict setObject:debug_path forKey:@"debug_path"];
+    
+    // 过滤SDK内部日志通过回调送回到用户层
+    [ticketJsonDict setObject:[NSString stringWithFormat:@"%d", NUI_LOG_LEVEL_NONE] forKey:@"log_track_level"];
+    // 设置本地存储日志文件的最大字节数, 最大将会在本地存储2个设置字节大小的日志文件
+    [ticketJsonDict setObject:@(50 * 1024 * 1024) forKey:@"max_log_file_size"];
+    
+    // FullMix = 0   // 选用此模式开启本地功能并需要进行鉴权注册
+    // FullCloud = 1 // 在线实时语音识别可以选这个
+    // FullLocal = 2 // 选用此模式开启本地功能并需要进行鉴权注册
+    // AsrMix = 3    // 选用此模式开启本地功能并需要进行鉴权注册
+    // AsrCloud = 4  // 在线一句话识别可以选这个
+    // AsrLocal = 5  // 选用此模式开启本地功能并需要进行鉴权注册
+    [ticketJsonDict setObject:@"1" forKey:@"service_mode"]; // 必填
+    
+    [ticketJsonDict setObject:@"cordova_device_id" forKey:@"device_id"]; // 必填, 推荐填入具有唯一性的id, 方便定位问题
+    
+    NSData *data = [NSJSONSerialization dataWithJSONObject:ticketJsonDict options:NSJSONWritingPrettyPrinted error:nil];
+    NSString *jsonStr = [[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding];
+    return jsonStr;
+}
+
+- (NSString*)genParams {
+    NSMutableDictionary *nls_config = [NSMutableDictionary dictionary];
+    [nls_config setValue:@YES forKey:@"enable_intermediate_result"];
+    [nls_config setValue:@YES forKey:@"enable_punctuation_prediction"];
+    [nls_config setValue:@16000 forKey:@"sample_rate"];
+    [nls_config setValue:@"opus" forKey:@"sr_format"];
+    
+    NSMutableDictionary *dictM = [NSMutableDictionary dictionary];
+    [dictM setObject:nls_config forKey:@"nls_config"];
+    [dictM setValue:@(SERVICE_TYPE_SPEECH_TRANSCRIBER) forKey:@"service_type"]; // 必填
+    
+    NSData *data = [NSJSONSerialization dataWithJSONObject:dictM options:NSJSONWritingPrettyPrinted error:nil];
+    NSString *jsonStr = [[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding];
+    return jsonStr;
+}
+
+- (NSString*)genDialogParams {
+    NSMutableDictionary *dialog_params = [NSMutableDictionary dictionary];
+    
+    // 运行过程中可以在nui_dialog_start时更新临时参数，尤其是更新过期token
+    // 注意: 若下一轮对话不再设置参数，则继续使用初始化时传入的参数
+    long distance_expire_time_4h = 14400;
+    [utils refreshTokenIfNeed:dialog_params distanceExpireTime:distance_expire_time_4h];
+    
+    NSData *data = [NSJSONSerialization dataWithJSONObject:dialog_params options:NSJSONWritingPrettyPrinted error:nil];
+    NSString *jsonStr = [[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding];
+    return jsonStr;
+}
+
+#pragma mark - NeoNuiSdkDelegate
+
+- (void)onNuiEventCallback:(NuiCallbackEvent)nuiEvent
+                   dialog:(long)dialog
+                kwsResult:(const char *)wuw
+                asrResult:(const char *)asr_result
+                 ifFinish:(BOOL)finish
+                  retCode:(int)code {
+    
+    NSLog(@"onNuiEventCallback event %d finish %d code %d", nuiEvent, finish, code);
+    
+    if (nuiEvent == EVENT_TRANSCRIBER_STARTED) {
+        // asr_result在此包含task_id，task_id有助于排查问题，请用户进行记录保存。
+        NSString *startedInfo = [NSString stringWithFormat:@"EVENT_TRANSCRIBER_STARTED: %@",
+                                 [NSString stringWithUTF8String:asr_result]];
+        NSLog(@"%@", startedInfo);
+        [self sendCallbackToJS:@"start" message:startedInfo];
+    } else if (nuiEvent == EVENT_TRANSCRIBER_COMPLETE) {
+        [self sendCallbackToJS:@"complete" message:@"转写完成"];
+    } else if (nuiEvent == EVENT_ASR_PARTIAL_RESULT || nuiEvent == EVENT_SENTENCE_END) {
+        // asr_result在此包含task_id，task_id有助于排查问题，请用户进行记录保存。
+        NSLog(@"ASR RESULT %s finish %d", asr_result, finish);
+        NSString *result = [NSString stringWithUTF8String:asr_result];
+        [self sendCallbackToJS:@"partial" message:result];
+    } else if (nuiEvent == EVENT_VAD_START) {
+        NSLog(@"EVENT_VAD_START");
+        [self sendCallbackToJS:@"vad_start" message:@"检测到语音开始"];
+    } else if (nuiEvent == EVENT_VAD_END) {
+        NSLog(@"EVENT_VAD_END");
+        [self sendCallbackToJS:@"vad_end" message:@"检测到语音结束"];
+    } else if (nuiEvent == EVENT_ASR_ERROR) {
+        // asr_result在EVENT_ASR_ERROR中为错误信息，搭配错误码code和其中的task_id更易排查问题，请用户进行记录保存。
+        NSLog(@"EVENT_ASR_ERROR error[%d]", code);
+        NSString *errorMsg = [NSString stringWithUTF8String:asr_result];
+        [self sendCallbackToJS:@"error" message:[NSString stringWithFormat:@"转写错误：%@（错误码：%d）", errorMsg, code]];
+    } else if (nuiEvent == EVENT_MIC_ERROR) {
+        NSLog(@"MIC ERROR");
+        [self sendCallbackToJS:@"error" message:@"麦克风异常"];
+    }
+    
+    // finish 为真（可能是发生错误，也可能是完成识别）表示一次任务生命周期结束，可以开始新的识别
+    if (finish) {
+        self.isTranscribing = NO;
+        [self sendCallbackToJS:@"stop" message:@"转写停止"];
+    }
+}
+
+- (int)onNuiNeedAudioData:(char *)audioData length:(int)len {
+    static int emptyCount = 0;
+    @autoreleasepool {
+        @synchronized(recordedVoiceData) {
+            if (recordedVoiceData.length > 0) {
+                int recorder_len = 0;
+                if (recordedVoiceData.length > len)
+                    recorder_len = len;
+                else
+                    recorder_len = recordedVoiceData.length;
+                NSData *tempData = [recordedVoiceData subdataWithRange:NSMakeRange(0, recorder_len)];
+                [tempData getBytes:audioData length:recorder_len];
+                tempData = nil;
+                NSInteger remainLength = recordedVoiceData.length - recorder_len;
+                NSRange range = NSMakeRange(recorder_len, remainLength);
+                [recordedVoiceData setData:[recordedVoiceData subdataWithRange:range]];
+                emptyCount = 0;
+                return recorder_len;
+            } else {
+                if (emptyCount++ >= 50) {
+                    NSLog(@"recordedVoiceData length = %lu! empty 50times.", (unsigned long)recordedVoiceData.length);
+                    emptyCount = 0;
+                }
+                return 0;
+            }
+        }
+    }
+    return 0;
+}
+
+- (void)onNuiAudioStateChanged:(NuiAudioState)state {
+    NSLog(@"onNuiAudioStateChanged state=%u", state);
+    if (state == STATE_CLOSE || state == STATE_PAUSE) {
+        // 停止录音
+        recordedVoiceData = nil;
+    } else if (state == STATE_OPEN) {
+        recordedVoiceData = [NSMutableData data];
+    }
+}
+
+- (void)onNuiRmsChanged:(float)rms {
+    // 可以在这里处理音量变化
+}
+
+- (void)onNuiLogTrackCallback:(NuiSdkLogLevel)level
+                  logMessage:(const char *)log {
+    NSLog(@"onNuiLogTrackCallback log level:%d, message -> %s", level, log);
+}
+
+#pragma mark - Helper Methods
+
+- (void)sendCallbackToJS:(NSString *)type message:(NSString *)message {
+    if (self.transcribeCallbackId) {
+        NSDictionary *resultDict = @{
+            @"type": type, // start/partial/complete/error/info/stop/vad_start/vad_end
+            @"message": message,
+            @"taskId": currentTaskId ?: @""
+        };
+        
+        CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:resultDict];
+        [pluginResult setKeepCallbackAsBool:YES]; // 保持回调，持续返回结果
+        
+        [self.commandDelegate sendPluginResult:pluginResult callbackId:self.transcribeCallbackId];
+        
+        // 如果是最终结果或错误，结束持续回调
+        if ([type isEqualToString:@"complete"] || [type isEqualToString:@"error"] || [type isEqualToString:@"stop"]) {
+            [pluginResult setKeepCallbackAsBool:NO];
+            [self.commandDelegate sendPluginResult:pluginResult callbackId:self.transcribeCallbackId];
+        }
     }
 }
 

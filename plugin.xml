@@ -59,13 +59,16 @@
             <feature name="AISpeechTranscriber">
                 <param name="ios-package" value="AISpeechTranscriber" />
             </feature>
+            <preference name="serviceurl" value="$SERVICEURL"/>
+            <preference name="appkey" value="$APPKEY"/>
         </config-file>
         
         <!-- 源文件 -->
+        <source-file src="src/ios/AISpeechTranscriber.h" />
         <source-file src="src/ios/AISpeechTranscriber.m" />
         
         <!-- 引入阿里云SDK（需将SDK文件放入指定目录） -->
-        <framework src="src/ios/libs/AliyunSpeechTranscriber.framework" embed="true" />
+        <framework src="src/ios/libs/nuisdk.framework" embed="true" />
         <framework src="AVFoundation.framework" /> <!-- 音频权限依赖 -->
         <framework src="CoreAudio.framework" />
         <framework src="AudioToolbox.framework" />
