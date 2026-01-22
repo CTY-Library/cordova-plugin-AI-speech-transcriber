@@ -8,11 +8,9 @@
     <license>MIT</license>
     <keywords>cordova, speech, transcribe, aliyun, AI</keywords>
     <repo>https://github.com/CTY-Library/cordova-plugin-AI-speech-transcriber</repo>
-    <!-- 插件配置参数 -->
-    <preference name="ACCESSKEYID"/>   
-    <preference name="ACCESSKEYSECRET"/>  
-    <preference name="APPKEY"/>
+    <!-- 插件配置参数 -->  
     <preference name="SERVICEURL"/>
+    <preference name="APPKEY"/>
     <!-- JavaScript模块 -->
     <js-module name="AISpeechTranscriber" src="www/AISpeechTranscriber.js">
         <clobbers target="AISpeechTranscriber" />
@@ -21,11 +19,9 @@
     <!-- 平台配置：Android -->
     <platform name="android">
         <!-- 注入AI语音识别所需的Key和token到AndroidManifest.xml -->
-        <config-file target="AndroidManifest.xml" parent="/manifest/application">     
-            <meta-data android:name="com.plugin.ai.speech.ACCESSKEYID" android:value="$ACCESSKEYID" />
-            <meta-data android:name="com.plugin.ai.speech.ACCESSKEYSECRET" android:value="$ACCESSKEYSECRET" />
+        <config-file target="AndroidManifest.xml" parent="/manifest/application">          
+            <meta-data android:name="com.plugin.ai.speech.SERVICEURL" android:value="$SERVICEURL" />            
             <meta-data android:name="com.plugin.ai.speech.APPKEY" android:value="$APPKEY" />
-            <meta-data android:name="com.plugin.ai.speech.SERVICEURL" android:value="$SERVICEURL" />
         </config-file>
         <!-- 源文件 -->
         <source-file src="src/android/AISpeechTranscriber.java"  target-dir="src/com/plugin/aliyun/aispeech" />    
@@ -34,6 +30,8 @@
         <source-file src="src/android/HttpResponse.java"    target-dir="src/com/plugin/aliyun/aispeech" />   
         <source-file src="src/android/HttpUtil.java"    target-dir="src/com/plugin/aliyun/aispeech" />   
         <source-file src="src/android/Signer.java"     target-dir="src/com/plugin/aliyun/aispeech" />  
+        <source-file src="src/android/Auth.java" target-dir="src/com/plugin/aliyun/aispeech" />
+        <source-file src="src/android/CommonUtils.java" target-dir="src/com/plugin/aliyun/aispeech" />
 
         <!-- 阿里云SDK依赖包 -->
         <lib-file src="src/android/libs/nuisdk-release.aar" />

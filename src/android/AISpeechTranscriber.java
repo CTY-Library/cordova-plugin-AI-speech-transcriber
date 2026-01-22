@@ -12,6 +12,10 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.text.TextUtils;
 import android.util.Log;
+import android.widget.Button;
+import android.widget.Spinner;
+import android.widget.Switch;
+import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
@@ -37,6 +41,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -51,22 +56,19 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
     private static final String TAG = "AliyunSpeechTranscriber";
     // 音频参数常量
     private static final int SAMPLE_RATE = 16000;
-    private static final int WAVE_FRAME_SIZE = 20 * 2 * 1 * SAMPLE_RATE / 1000; // 20ms 音频帧
+
     // 权限请求码
     private static final int PERMISSION_RECORD_AUDIO = 1001;
     private static final int PERMISSION_WRITE_STORAGE = 1002;
     private static final int READ_EXTERNAL_STORAGE =1003;
 
-    // 阿里云认证参数
-    private String appKey;
+
     private String token;
-    private String stsToken;
-    private String accessKey;
-    private String accessKeySecret;
+
     private String serviceUrl = "wss://nls-gateway.cn-shanghai.aliyuncs.com:443/ws/v1";
 
     // SDK 核心实例
-    private NativeNui nuiInstance = new NativeNui();
+    private NativeNui nui_instance = new NativeNui();
     // 音频录制相关
     private AudioRecord audioRecorder;
     private LinkedBlockingQueue<byte[]> audioQueue = new LinkedBlockingQueue<>();
@@ -81,6 +83,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
     private String currentTaskId = "";
     private String debugPath;
 
+
     // 异步线程
     private HandlerThread workerThread;
     private Handler workerHandler;
@@ -93,7 +96,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
     @Override
     public boolean execute(String action, JSONArray args, CallbackContext callbackContext) {
         try {
-            String version = nuiInstance.GetVersion();
+            String version = nui_instance.GetVersion();
             Log.i(TAG, "当前版本号 sdk version: " + version);
 
             switch (action) {
@@ -125,96 +128,57 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
     private static final String[] ALL_PERMISSIONS = {
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.READ_EXTERNAL_STORAGE,
-            Manifest.permission.WRITE_EXTERNAL_STORAGE
+            Manifest.permission.WRITE_EXTERNAL_STORAGE,
+
     };
     private static final int PERMISSION_REQUEST_CODE = 1001;
-    private void initSDK(org.json.JSONObject config, CallbackContext callbackContext) {
-        // 解析配置参数
-        try {
-            // 1 . 创建调试目录
-            debugPath = Objects.requireNonNull(cordova.getActivity().getExternalCacheDir()).getAbsolutePath() + "/speech_debug";
-            CommonUtils.createDir(debugPath);
+    private void initSDK(org.json.JSONObject config, CallbackContext callbackContext) throws PackageManager.NameNotFoundException, org.json.JSONException {
 
-            // 第二步：拷贝Assets配置文件
-            if (CommonUtils.copyAssetsData(this.cordova.getActivity(),debugPath)) {
-                Log.i(TAG, "copy assets data done");
-                // 第三步：拷贝成功后初始化NUI SDK
+        String version = nui_instance.GetVersion();
+        final String version_text = "内部SDK版本号:" + version;
+        Log.i(TAG, "current sdk version: " + version_text);
+        Context context = this.cordova.getActivity().getApplicationContext();
+        // 获取ApplicationInfo中的元数据
+        ApplicationInfo appInfo =  context.getPackageManager().getApplicationInfo(context.getPackageName(),
+                PackageManager.GET_META_DATA);
 
+
+        g_token = config.getString("token");// "4e89df9758a145a18cd37dc34906418e";
+        g_appkey = appInfo.metaData.getString("com.plugin.ai.speech.APPKEY");
+        g_url =  appInfo.metaData.getString("com.plugin.ai.speech.SERVICEURL", serviceUrl);// "wss://nls-gateway.cn-shanghai.aliyuncs.com:443/ws/v1";
+
+        // 检查文件读写权限
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+
+            // 检查是否所有权限都已授予
+            boolean hasAllPermission = true;
+            for (String permission : ALL_PERMISSIONS) {
+                if (!PermissionHelper.hasPermission(this, permission)) {
+                    hasAllPermission = false;
+                    break;
+                }
             }
-            else {
-                Log.i(TAG, "copy assets failed");
-                //return;
-            }
 
-            isSaveAudio = config.optBoolean("saveAudio", false);
-
-            Context context = this.cordova.getActivity().getApplicationContext();
-            // 获取ApplicationInfo中的元数据
-            ApplicationInfo appInfo =  context.getPackageManager().getApplicationInfo(context.getPackageName(),
-                    PackageManager.GET_META_DATA);
-
-            // 读取配置的参数（与plugin.xml中android:name对应）
-            appKey = appInfo.metaData.getString("com.plugin.ai.speech.APPKEY");
-            accessKey = appInfo.metaData.getString("com.plugin.ai.speech.ACCESSKEYID");
-            accessKeySecret = appInfo.metaData.getString("com.plugin.ai.speech.ACCESSKEYSECRET");
-//            token = appInfo.metaData.getString("com.plugin.ai.speech.TOKEN");
-//            stsToken = appInfo.metaData.getString("com.plugin.ai.speech.STSTOKEN");
-            serviceUrl = appInfo.metaData.getString("com.plugin.ai.speech.SERVICEURL", serviceUrl);
-
-            // 使用自定义AccessToken类生成Token
-            AccessToken accessToken = new AccessToken(accessKey, accessKeySecret, null);
-            try {
-                accessToken.apply();
-                token = accessToken.getToken();
-                long expireTime = accessToken.getExpireTime();
-                Log.i(TAG, "Token生成成功，过期时间：" + expireTime);
-            } catch (IOException e) {
-                Log.e(TAG, "Token生成失败：" + e.getMessage());
-                callbackContext.error("Token生成失败：" + e.getMessage());
+            if (!hasAllPermission) {
+                // 申请所有必要权限
+                PermissionHelper.requestPermissions(this, PERMISSION_REQUEST_CODE, ALL_PERMISSIONS);
                 return;
             }
 
-            // 校验必要参数
-            if (TextUtils.isEmpty(appKey)) {
-                callbackContext.error("appKey 不能为空");
-                return;
-            }
 
-            // 初始化异步线程
-//            if (workerThread == null || !workerThread.isAlive()) {
-//                workerThread = new HandlerThread("SpeechTranscriber-Worker");
-//                workerThread.start();
-//                workerHandler = new Handler(workerThread.getLooper());
-//            }
-
-            // 检查文件读写权限
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-
-                // 检查是否所有权限都已授予
-                boolean hasAllPermission = true;
-                for (String permission : ALL_PERMISSIONS) {
-                    if (!PermissionHelper.hasPermission(this, permission)) {
-                        hasAllPermission = false;
-                        break;
-                    }
-                }
-
-                if (!hasAllPermission) {
-                    // 申请所有必要权限
-                    PermissionHelper.requestPermissions(this, PERMISSION_REQUEST_CODE, ALL_PERMISSIONS);
-                    return;
-                }
-
-
-            }
-
-            //初始化SDK
-            initSDKAfterPermissionGranted();
-
-        } catch (Exception e) {
-            callbackContext.error("初始化参数解析失败：" + e.getMessage());
-            Log.e(TAG, "初始化参数解析异常", e);
         }
+
+        mDebugPath =  Objects.requireNonNull(cordova.getActivity().getExternalCacheDir()).getAbsolutePath()  + "/debug";
+        CommonUtils.createDir(mDebugPath);
+
+        //初始化SDK，注意用户需要在Auth.getTicket中填入相关ID信息才可以使用。
+        int ret = nui_instance.initialize(this, genInitParams("", mDebugPath),
+                Constants.LogLevel.LOG_LEVEL_VERBOSE, true);
+        Log.i(TAG, "result = " + ret);
+        if (ret == Constants.NuiResultCode.SUCCESS) {
+            isSdkInitialized = true;
+        }
+
     }
 
     // ====================== 启动实时转写 ======================
@@ -249,33 +213,20 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
             // 初始化音频录制器
             initAudioRecorder();
 
-            // 异步启动转写
-           // workerHandler.post(() -> {
-                try {
-                    // 设置转写参数
-                    String asrParams = generateAsrParams();
-                    Log.i(TAG, "nui set params " + asrParams);
-                    nuiInstance.setParams(asrParams);
 
-                    // 启动实时转写（核心调用）
-                    int startResult = nuiInstance.startDialog(Constants.VadMode.TYPE_P2T, generateDialogParams());
-                    Log.i(TAG, "start done with " + startResult);
+            //设置相关识别参数，具体参考API文档，在startDialog前调用
+            String setParamsString = genParams();
+            Log.i(TAG, "nui set params " + setParamsString);
+            nui_instance.setParams(setParamsString);
+            //开始实时识别
+            int ret = nui_instance.startDialog(Constants.VadMode.TYPE_P2T,
+                    genDialogParams());
+            Log.i(TAG, "start done with " + ret);
+            if (ret == Constants.NuiResultCode.SUCCESS) {
+                Log.i(TAG, "实时转写启动成功");
+            }
 
-                    if (startResult == Constants.NuiResultCode.SUCCESS) {
-                        isTranscribing = true;
-                        isStopping = false;
-                        sendCallback("start", "实时转写已启动");
-                        Log.i(TAG, "实时转写启动成功");
-                    } else {
-                        String errorMsg = CommonUtils.getMsgWithErrorCode(startResult, "启动转写");
-                        sendCallback("error", "启动转写失败：" + errorMsg);
-                        Log.e(TAG, "启动转写失败：" + errorMsg);
-                    }
-                } catch (Exception e) {
-                    sendCallback("error", "启动转写异常：" + e.getMessage());
-                    Log.e(TAG, "启动转写异常", e);
-                }
-         //   });
+
         } else {
             Log.e(TAG, "donnot get RECORD_AUDIO permission!");
             sendCallback("error", "未获得录音权限，无法正常运行。请通过设置界面重新开启权限。");
@@ -293,7 +244,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
         workerHandler.post(() -> {
             try {
                 isStopping = true;
-                long stopResult = nuiInstance.stopDialog();
+                long stopResult = nui_instance.stopDialog();
                 isTranscribing = false;
 
                 // 释放音频资源
@@ -320,14 +271,14 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
             try {
                 // 停止转写
                 if (isTranscribing) {
-                    nuiInstance.stopDialog();
+                    nui_instance.stopDialog();
                     isTranscribing = false;
                 }
 
                 // 释放 SDK
-                if (nuiInstance != null) {
-                    nuiInstance.release();
-                    nuiInstance = null;
+                if (nui_instance != null) {
+                    nui_instance.release();
+                    nui_instance = null;
                 }
 
                 // 释放音频资源
@@ -429,7 +380,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                         SAMPLE_RATE,
                         AudioFormat.CHANNEL_IN_MONO,
                         AudioFormat.ENCODING_PCM_16BIT,
-                        WAVE_FRAME_SIZE * 4
+                        1 * 4 //todo
                 );
                 Log.d(TAG, "AudioRecorder new ...");
             } catch (Exception e) {
@@ -559,7 +510,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                 // 生成初始化参数
                 String initParams = generateInitParams();
                 // 初始化 SDK
-                int initResult = nuiInstance.initialize(
+                int initResult = nui_instance.initialize(
                         this,
                         initParams,
                         Constants.LogLevel.LOG_LEVEL_VERBOSE,
@@ -692,39 +643,174 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
         Log.i(TAG, "SDK 日志：" + level + " -> " + log);
     }
 
-    // ====================== 阿里云认证辅助类 ======================
-    private static class Auth {
-        private static String appKey = "";
-        private static String token = "";
-        private static String accessKey = "";
-        private static String accessKeySecret = "";
-        private static String stsToken = "";
 
-        public enum GetTicketMethod {
-            GET_TOKEN_FROM_SERVER_FOR_ONLINE_FEATURES,
-            GET_TOKEN_IN_CLIENT_FOR_ONLINE_FEATURES,
-            GET_ACCESS_IN_CLIENT_FOR_ONLINE_FEATURES,
-            GET_STS_ACCESS_IN_CLIENT_FOR_ONLINE_FEATURES
+
+    private String g_appkey = "";
+    private String g_token = "";
+    private String g_sts_token = "";
+    private String g_ak = "";
+    private String g_sk = "";
+    private String g_url = "";
+
+    private final Map<String, List<String>> paramMap = new HashMap<>();
+
+    private final static int WAVE_FRAM_SIZE = 20 * 2 * 1 * SAMPLE_RATE / 1000; //20ms audio for 16k/16bit/mono
+
+
+
+    private String mDebugPath = "";
+    private String curTaskId = "";
+    private LinkedBlockingQueue<byte[]> tmpAudioQueue = new LinkedBlockingQueue();
+
+
+
+    private String genInitParams(String workpath, String debug_path) {
+        String str = "";
+        try{
+            //获取账号访问凭证：
+            Auth.GetTicketMethod method = Auth.GetTicketMethod.GET_TOKEN_FROM_SERVER_FOR_ONLINE_FEATURES;
+            if (!g_appkey.isEmpty()) {
+                Auth.setAppKey(g_appkey);
+            }
+            if (!g_token.isEmpty()) {
+                Auth.setToken(g_token);
+            }
+            if (!g_ak.isEmpty()) {
+                Auth.setAccessKey(g_ak);
+            }
+            if (!g_sk.isEmpty()) {
+                Auth.setAccessKeySecret(g_sk);
+            }
+            Auth.setStsToken(g_sts_token);
+            // 此处展示将用户传入账号信息进行交互，实际产品不可以将任何账号信息存储在端侧
+            if (!g_appkey.isEmpty()) {
+                if (!g_ak.isEmpty() && !g_sk.isEmpty()) {
+                    if (g_sts_token.isEmpty()) {
+                        method = Auth.GetTicketMethod.GET_ACCESS_IN_CLIENT_FOR_ONLINE_FEATURES;
+                    } else {
+                        method = Auth.GetTicketMethod.GET_STS_ACCESS_IN_CLIENT_FOR_ONLINE_FEATURES;
+                    }
+                }
+                if (!g_token.isEmpty()) {
+                    method = Auth.GetTicketMethod.GET_TOKEN_IN_CLIENT_FOR_ONLINE_FEATURES;
+                }
+            }
+            Log.i(TAG, "Use method:" + method);
+            JSONObject object = Auth.getTicket(method);
+            if (!object.containsKey("token")) {
+                Log.e(TAG, "Cannot get token !!! 未获得有效临时凭证");
+
+            }
+
+            object.put("device_id", "empty_device_id"); // 必填, 推荐填入具有唯一性的id, 方便定位问题
+            if (g_url.isEmpty()) {
+                g_url = "wss://nls-gateway.cn-shanghai.aliyuncs.com:443/ws/v1"; // 默认
+            }
+            object.put("url", g_url);
+
+            //工作目录路径，SDK从该路径读取配置文件
+//            object.put("workspace", workpath); // V2.6.2版本开始纯云端功能可不设置workspace
+
+            //当初始化SDK时的save_log参数取值为true时，该参数生效。表示是否保存音频debug，该数据保存在debug目录中，需要确保debug_path有效可写。
+            object.put("save_wav", "true");
+            //debug目录，当初始化SDK时的save_log参数取值为true时，该目录用于保存中间音频文件。
+            object.put("debug_path", debug_path);
+            //设置本地存储日志文件的最大字节数, 最大将会在本地存储2个设置字节大小的日志文件
+            object.put("max_log_file_size", 50 * 1024 * 1024);
+
+            //过滤SDK内部日志通过回调送回到用户层
+            object.put("log_track_level", String.valueOf(Constants.LogLevel.toInt(Constants.LogLevel.LOG_LEVEL_NONE)));
+
+            // FullMix = 0   // 选用此模式开启本地功能并需要进行鉴权注册
+            // FullCloud = 1
+            // FullLocal = 2 // 选用此模式开启本地功能并需要进行鉴权注册
+            // AsrMix = 3    // 选用此模式开启本地功能并需要进行鉴权注册
+            // AsrCloud = 4
+            // AsrLocal = 5  // 选用此模式开启本地功能并需要进行鉴权注册
+            // 这里只能选择FullMix和FullCloud
+            object.put("service_mode", Constants.ModeFullCloud); // 必填
+            str = object.toString();
+        } catch (JSONException e) {
+            e.printStackTrace();
         }
 
-        public   void setToken(String t) {
-            token = t;
-        }
-
-        public   void setAccessKey(String ak) {
-            accessKey = ak;
-        }
-
-        public   void setStsToken(String st) {
-            stsToken = st;
-        }
-
-
-        public static JSONObject refreshTokenIfNeed(JSONObject params, long expireTime) throws JSONException {
-            // 此处可扩展 token 刷新逻辑
-            return params;
-        }
+        // 注意! str中包含ak_id ak_secret token app_key等敏感信息, 实际产品中请勿在Log中输出这类信息！
+        Log.i(TAG, "InsideUserContext:" + str);
+        return str;
     }
+
+
+
+    private String genParams() {
+        String params = "";
+        try {
+            JSONObject nls_config = new JSONObject();
+
+            //参数可根据实际业务进行配置
+            //接口说明可见https://help.aliyun.com/document_detail/173528.html
+            //查看 2.开始识别
+
+            // 是否返回中间识别结果，默认值：False。
+            nls_config.put("enable_intermediate_result", true);
+            // 是否在后处理中添加标点，默认值：False。
+            nls_config.put("enable_punctuation_prediction", true);
+
+            nls_config.put("sample_rate", 16000);
+            nls_config.put("sr_format","opus"); // mFormatSpin.getSelectedItem().toString()
+//            nls_config.put("enable_inverse_text_normalization", true);
+//            nls_config.put("max_sentence_silence", 800);
+//            nls_config.put("enable_words", false);
+
+            // 设置文档中不存在的参数, key为custom_params, value以json string的形式设置参数
+            // 如下示例传入{vocabulary:{"热词1":2,"热词2":2}} 表示在payload下添加参数
+            // payload.vocabulary : {"热词1":2,"热词2":2}
+//            JSONObject extend_config = new JSONObject();
+//            JSONObject vocab = new JSONObject();
+//            vocab.put("热词1", 2);
+//            vocab.put("热词2", 2);
+//            extend_config.put("vocabulary", vocab);
+//            nls_config.put("extend_config", extend_config);
+
+            JSONObject tmp = new JSONObject();
+            tmp.put("nls_config", nls_config);
+            tmp.put("service_type", Constants.kServiceTypeSpeechTranscriber); // 必填
+
+//            如果有HttpDns则可进行设置
+//            tmp.put("direct_ip", Utils.getDirectIp());
+
+            params = tmp.toString();
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+        return params;
+    }
+
+
+
+    private String genDialogParams() {
+        String params = "";
+        try {
+            JSONObject dialog_param = new JSONObject();
+            // 运行过程中可以在startDialog时更新临时参数，尤其是更新过期token
+            // 注意: 若下一轮对话不再设置参数，则继续使用初始化时传入的参数
+            long distance_expire_time_30m = 1800;
+            dialog_param = Auth.refreshTokenIfNeed(dialog_param, distance_expire_time_30m);
+
+            // 注意: 若需要更换appkey和token，可以直接传入参数
+//            dialog_param.put("app_key", "");
+//            dialog_param.put("token", "");
+            params = dialog_param.toString();
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        Log.i(TAG, "dialog params: " + params);
+        return params;
+    }
+
+
+
+
 
 
 }

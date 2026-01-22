@@ -15,12 +15,12 @@ AI语音转文字插件,基于阿里云的SDK
 
 安装命令
 ```
- ionic cordova plugin add   https://github.com/CTY-Library/cordova-plugin-AI-speech-transcriber --variable APPKEY=xxxxxx  --variable ACCESSKEYID=xxxxxx --variable   ACCESSKEYSECRET=xxxxxx   --variable SERVICEURL=xxxxxx --save
+ ionic cordova plugin add   https://github.com/CTY-Library/cordova-plugin-AI-speech-transcriber --variable APPKEY=xxxxxx   --variable SERVICEURL=xxxxxx --save
 ```
 
 本地安装 
  ```
- ionic cordova plugin add  F:\app\cordova-plugin-AI-speech-transcriber --variable APPKEY=1ww23  --variable ACCESSKEYID=56rz8 --variable   ACCESSKEYSECRET=fffwx   --variable SERVICEURL=467gr  
+ ionic cordova plugin add  F:\app\cordova-plugin-AI-speech-transcriber --variable APPKEY=1ww23    --variable SERVICEURL=xxxxxx --save  
  ```
 
 Android平台配置
@@ -58,48 +58,57 @@ Android平台配置
 
 使用案例关键代码
 ```
- async audioToWord(){
-        this.ctrlService.Toast("开始录音...", 'middle', 2000, 'login-toast');
+  async audioToWord(){
+        this.ctrlService.Toast("初始化录音...", 'middle', 2000, 'login-toast');
         this.resultWordMsg += '\n' + "你好,世界!";
 
         // 初始化
          AISpeechTranscriber.init(
-            { saveAudio: true},
+            { saveAudio: false, lang: 'zh_CN', token:"4e89df9758a145a18cd37dc34906418e" },
             (e : any) => {
-                alert(e);//成功
+                alert(JSON.stringify(e));//成功 
+
             }, (e : any) => {
-                alert(e)//失败
+                alert(JSON.stringify(e))//失败
             });
 
-        // 开始转写
-        AISpeechTranscriber.startTranscribe(            
-        (e : any) => {
-            //成功
-            this.resultWordMsg += '\n' + e;
-        }, (e : any) => {
-            alert(e)//失败
-        });
+    
     }
+
+        async beginAudio(){
+            this.ctrlService.Toast("初始化录音...", 'middle', 2000, 'login-toast');
+                // 开始转写
+                AISpeechTranscriber.startTranscribe(            
+                (e : any) => {
+                    //成功 
+                    this.resultWordMsg += '\n\r\t' + JSON.stringify(e);   
+                }, (e : any) => {
+                    alert(JSON.stringify(e))//失败
+            });
+        }
+
+
 
     async stopAudio(){
         AISpeechTranscriber.stopTranscribe(            
         (e : any) => {
             //成功
-            this.resultWordMsg += '\n' + e;
+            this.resultWordMsg += '\n' + JSON.stringify(e);
 
             // 销毁实例
             AISpeechTranscriber.release (            
             (e : any) => {
                 //成功
-                this.resultWordMsg += '\n' + e;
+                this.resultWordMsg += '\n' + JSON.stringify(e);
             }, (e : any) => {
-                alert(e)//失败
+                alert(JSON.stringify(e))//失败
             });
 
         }, (e : any) => {
-            alert(e)//失败
+            alert(JSON.stringify(e))//失败
         });
     }
+
 
 ```
 
