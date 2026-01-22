@@ -1,5 +1,4 @@
 #import <Cordova/CDV.h>
-#import <AISpeechTranscriber.h>
 #import <Foundation/Foundation.h>
 #define DEBUG_MODE
 #import "nuisdk.framework/Headers/NeoNui.h"
@@ -9,71 +8,24 @@
 #include <sys/time.h>
 #include <time.h>
 
+
+#import "AISpeechTranscriber.h"
+
 #define SCREEN_WIDTH_BASE 375
 #define SCREEN_HEIGHT_BASE 667
 
 static BOOL save_wav = NO;
 static BOOL save_log = NO;
-
-@interface AISpeechTranscriber : CDVPlugin <NeoNuiSdkDelegate> {
-    // 阿里云SDK核心实例
-    NeoNui *nui;
-    // 工具类
-    NuiSdkUtils *utils;
-    // 录音数据缓存
-    NSMutableData *recordedVoiceData;
-    // 当前任务ID
-    NSString *currentTaskId;
-    // 音频控制器
-    id audioController;
-    
-    // Cordova相关属性
-    NSDictionary *config;
-    BOOL isTranscribing;
-    NSString *transcribeCallbackId;
-    NSString *mserviceurl;
-    NSString *mappkey;
-}
-
-@end
+ 
 
 @implementation AISpeechTranscriber
 
 - (void)pluginInitialize {
     CDVViewController *viewController = (CDVViewController *)self.viewController;
-    mserviceurl = [viewController.settings objectForKey:@"serviceurl"];//获取插件的SECRET_KEY
-    mappkey = [viewController.settings objectForKey:@"appkey"];//获取插件的APPKEY
+    _mserviceurl = [viewController.settings objectForKey:@"serviceurl"];//获取插件的SECRET_KEY
+    _mappkey = [viewController.settings objectForKey:@"appkey"];//获取插件的APPKEY
 }
-
-// 属性访问方法
-- (NSDictionary *)config {
-    return config;
-}
-
-- (void)setConfig:(NSDictionary *)newConfig {
-    config = newConfig;
-}
-
-- (BOOL)isTranscribing {
-    return isTranscribing;
-}
-
-- (void)setIsTranscribing:(BOOL)newIsTranscribing {
-    isTranscribing = newIsTranscribing;
-}
-
-- (NSString *)transcribeCallbackId {
-    return transcribeCallbackId;
-}
-
-- (void)setTranscribeCallbackId:(NSString *)newTranscribeCallbackId {
-    transcribeCallbackId = newTranscribeCallbackId;
-}
-
-- (void)pluginInitialize {
-    [super pluginInitialize];
-    NSLog(@"AISpeechTranscriber plugin initialized");
-}
+ 
 
 #pragma mark - Cordova Plugin Methods
 
@@ -95,15 +47,15 @@ static BOOL save_log = NO;
         self.config = config;
         
         // 初始化工具类
-        utils = [[NuiSdkUtils alloc] init];
+        _utils = [[NuiSdkUtils alloc] init];
         
         // 初始化SDK实例
-        [self initNuiWithAppKey:mappkey 
-                        token:token 
+        [self initNuiWithAppKey:_mappkey
+                        token:token
                      accessKey:accessKey 
                 accessKeySecret:accessKeySecret 
                       stsToken:stsToken 
-                     serviceUrl:mserviceurl 
+                     serviceUrl:_mserviceurl
                      saveAudio:saveAudio];
         
         // 初始化成功
@@ -194,9 +146,9 @@ static BOOL save_log = NO;
                serviceUrl:(NSString *)serviceUrl 
                saveAudio:(BOOL)saveAudio {
     
-    if (nui == NULL) {
-        nui = [NeoNui get_instance];
-        nui.delegate = self;
+    if (_nui == NULL) {
+        _nui = [NeoNui get_instance];
+        _nui.delegate = self;
     }
     
     // 设置全局保存选项
@@ -211,20 +163,20 @@ static BOOL save_log = NO;
                                        stsToken:stsToken 
                                       serviceUrl:serviceUrl];
     
-    [nui nui_initialize:[initParam UTF8String] logLevel:NUI_LOG_LEVEL_DEBUG saveLog:save_log];
+    [_nui nui_initialize:[initParam UTF8String] logLevel:NUI_LOG_LEVEL_DEBUG saveLog:save_log];
     NSString *parameters = [self genParams];
-    [nui nui_set_params:[parameters UTF8String]];
+    [_nui nui_set_params:[parameters UTF8String]];
     
     NSLog(@"SDK initialized successfully");
 }
 
 - (void)performStartTranscription:(CDVInvokedUrlCommand *)command {
-    if (nui != nil) {
+    if (_nui != nil) {
         // 生成对话参数
         NSString *parameters = [self genDialogParams];
         
         // 启动实时转写
-        int ret = [nui nui_dialog_start:MODE_P2T dialogParam:[parameters UTF8String]];
+        int ret = [_nui nui_dialog_start:MODE_P2T dialogParam:[parameters UTF8String]];
         
         if (ret == 0) {
             self.isTranscribing = YES;
@@ -245,22 +197,22 @@ static BOOL save_log = NO;
 }
 
 - (void)performStopTranscription {
-    if (nui != nil) {
-        [nui nui_dialog_cancel:NO];
+    if (_nui != nil) {
+        [_nui nui_dialog_cancel:NO];
         self.isTranscribing = NO;
-        recordedVoiceData = nil;
+        _recordedVoiceData = nil;
     }
 }
 
 - (void)terminateNui {
     NSLog(@"terminateNui");
-    if (nui != nil) {
-        [nui nui_release];
-        nui.delegate = nil;
-        nui = nil;
+    if (_nui != nil) {
+        [_nui nui_release];
+        _nui.delegate = nil;
+        _nui = nil;
     }
-    recordedVoiceData = nil;
-    utils = nil;
+    _recordedVoiceData = nil;
+    _utils = nil;
     self.isTranscribing = NO;
     self.transcribeCallbackId = nil;
 }
@@ -287,9 +239,9 @@ static BOOL save_log = NO;
                 if (completion) completion(granted);
             }];
             break;
-        default:
-            if (completion) completion(NO);
-            break;
+//        default:
+//            if (completion) completion(NO);
+//            break;
     }
 }
 
@@ -302,7 +254,7 @@ static BOOL save_log = NO;
                          stsToken:(NSString *)stsToken 
                         serviceUrl:(NSString *)serviceUrl {
     
-    NSString *debug_path = [utils createDir];
+    NSString *debug_path = [_utils createDir];
     
     NSMutableDictionary *ticketJsonDict = [NSMutableDictionary dictionary];
     
@@ -376,7 +328,7 @@ static BOOL save_log = NO;
     // 运行过程中可以在nui_dialog_start时更新临时参数，尤其是更新过期token
     // 注意: 若下一轮对话不再设置参数，则继续使用初始化时传入的参数
     long distance_expire_time_4h = 14400;
-    [utils refreshTokenIfNeed:dialog_params distanceExpireTime:distance_expire_time_4h];
+    [_utils refreshTokenIfNeed:dialog_params distanceExpireTime:distance_expire_time_4h];
     
     NSData *data = [NSJSONSerialization dataWithJSONObject:dialog_params options:NSJSONWritingPrettyPrinted error:nil];
     NSString *jsonStr = [[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding];
@@ -433,24 +385,24 @@ static BOOL save_log = NO;
 - (int)onNuiNeedAudioData:(char *)audioData length:(int)len {
     static int emptyCount = 0;
     @autoreleasepool {
-        @synchronized(recordedVoiceData) {
-            if (recordedVoiceData.length > 0) {
+        @synchronized(_recordedVoiceData) {
+            if (_recordedVoiceData.length > 0) {
                 int recorder_len = 0;
-                if (recordedVoiceData.length > len)
+                if (_recordedVoiceData.length > len)
                     recorder_len = len;
                 else
-                    recorder_len = recordedVoiceData.length;
-                NSData *tempData = [recordedVoiceData subdataWithRange:NSMakeRange(0, recorder_len)];
+                    recorder_len = _recordedVoiceData.length;
+                NSData *tempData = [_recordedVoiceData subdataWithRange:NSMakeRange(0, recorder_len)];
                 [tempData getBytes:audioData length:recorder_len];
                 tempData = nil;
-                NSInteger remainLength = recordedVoiceData.length - recorder_len;
+                NSInteger remainLength = _recordedVoiceData.length - recorder_len;
                 NSRange range = NSMakeRange(recorder_len, remainLength);
-                [recordedVoiceData setData:[recordedVoiceData subdataWithRange:range]];
+                [_recordedVoiceData setData:[_recordedVoiceData subdataWithRange:range]];
                 emptyCount = 0;
                 return recorder_len;
             } else {
                 if (emptyCount++ >= 50) {
-                    NSLog(@"recordedVoiceData length = %lu! empty 50times.", (unsigned long)recordedVoiceData.length);
+                    NSLog(@"_recordedVoiceData length = %lu! empty 50times.", (unsigned long)_recordedVoiceData.length);
                     emptyCount = 0;
                 }
                 return 0;
@@ -464,9 +416,9 @@ static BOOL save_log = NO;
     NSLog(@"onNuiAudioStateChanged state=%u", state);
     if (state == STATE_CLOSE || state == STATE_PAUSE) {
         // 停止录音
-        recordedVoiceData = nil;
+        _recordedVoiceData = nil;
     } else if (state == STATE_OPEN) {
-        recordedVoiceData = [NSMutableData data];
+        _recordedVoiceData = [NSMutableData data];
     }
 }
 
@@ -486,7 +438,7 @@ static BOOL save_log = NO;
         NSDictionary *resultDict = @{
             @"type": type, // start/partial/complete/error/info/stop/vad_start/vad_end
             @"message": message,
-            @"taskId": currentTaskId ?: @""
+            @"taskId": _currentTaskId ?: @""
         };
         
         CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:resultDict];
@@ -501,5 +453,15 @@ static BOOL save_log = NO;
         }
     }
 }
+
+- (void)cancelTranscription {
+}
+
+ 
+
+- (void)destroy {
+}
+
+ 
 
 @end

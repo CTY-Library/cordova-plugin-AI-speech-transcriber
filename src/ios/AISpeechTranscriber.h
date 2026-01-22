@@ -1,6 +1,14 @@
 #import <Foundation/Foundation.h>
 #import <Cordova/CDV.h>
 #import <AVFoundation/AVFoundation.h>
+#define DEBUG_MODE
+#import "nuisdk.framework/Headers/NeoNui.h"
+#import "NuiSdkUtils.h"
+
+#import <AudioToolbox/AudioToolbox.h>
+#include <sys/time.h>
+#include <time.h>
+
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -68,6 +76,23 @@ typedef NS_ENUM(NSInteger, AISpeechTranscriberState) {
  */
 @interface AISpeechTranscriber : CDVPlugin
 
+// 阿里云SDK核心实例
+@property NeoNui *nui;
+// 工具类
+@property NuiSdkUtils *utils;
+// 录音数据缓存
+@property NSMutableData *recordedVoiceData;
+// 当前任务ID
+@property NSString *currentTaskId;
+// 音频控制器
+@property id audioController;
+
+// Cordova相关属性
+@property NSDictionary *config;
+@property BOOL isTranscribing;
+@property NSString *transcribeCallbackId;
+@property NSString *mserviceurl;
+@property  NSString *mappkey;
 /** 代理对象 */
 @property (nonatomic, weak, nullable) id<AISpeechTranscriberDelegate> delegate;
 /** 当前转写状态 */
@@ -79,13 +104,7 @@ typedef NS_ENUM(NSInteger, AISpeechTranscriberState) {
 /** 超时时间（秒），默认30秒 */
 @property (nonatomic, assign) NSTimeInterval timeout;
 
-/** 配置参数 */
-@property (nonatomic, strong, nullable) NSDictionary *config;
-/** 当前是否正在转写 */
-@property (nonatomic, assign) BOOL isTranscribing;
-/** 回调ID（用于持续返回转写结果） */
-@property (nonatomic, copy, nullable) NSString *transcribeCallbackId;
-
+ 
 /**
  * 单例方法
  * @return 全局唯一的转写器实例

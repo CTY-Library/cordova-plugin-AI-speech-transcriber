@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
         id="cordova-plugin-AI-speech-transcriber"
-        version="1.0.0">
+        version="1.0.1">
     <name>AISpeechTranscriber</name>
     <description>基于阿里云SDK的Cordova语音转写插件</description>
     <author>CTY-Library</author>
@@ -66,9 +66,15 @@
         <!-- 源文件 -->
         <source-file src="src/ios/AISpeechTranscriber.h" />
         <source-file src="src/ios/AISpeechTranscriber.m" />
+        <source-file src="src/ios/NuiSdkUtils.m" />
+        <source-file src="src/ios/NuiSdkUtils.h" />
+        <source-file src="src/ios/token/AccessToken.h" />
+        <source-file src="src/ios/token/AccessToken.m" />
+        <source-file src="src/ios/token/TokenHttpRequest.h" />
+        <source-file src="src/ios/token/TokenHttpRequest.m" />
         
         <!-- 引入阿里云SDK（需将SDK文件放入指定目录） -->
-        <framework src="src/ios/libs/nuisdk.framework" embed="true" />
+        <framework src="src/ios/lib/nuisdk.framework" custom="true" />
         <framework src="AVFoundation.framework" /> <!-- 音频权限依赖 -->
         <framework src="CoreAudio.framework" />
         <framework src="AudioToolbox.framework" />
