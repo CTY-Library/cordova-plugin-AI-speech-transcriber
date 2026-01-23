@@ -4,6 +4,7 @@
 #import "nuisdk.framework/Headers/NeoNui.h"
 #import "NuiSdkUtils.h"
 
+
 #import <AudioToolbox/AudioToolbox.h>
 #include <sys/time.h>
 #include <time.h>
@@ -16,7 +17,7 @@
 
 static BOOL save_wav = NO;
 static BOOL save_log = NO;
- 
+
 
 @implementation AISpeechTranscriber
 
@@ -25,7 +26,7 @@ static BOOL save_log = NO;
     _mserviceurl = [viewController.settings objectForKey:@"serviceurl"];//获取插件的SECRET_KEY
     _mappkey = [viewController.settings objectForKey:@"appkey"];//获取插件的APPKEY
 }
- 
+
 
 #pragma mark - Cordova Plugin Methods
 
@@ -47,7 +48,8 @@ static BOOL save_log = NO;
         self.config = config;
         
         // 初始化工具类
-        _utils = [[NuiSdkUtils alloc] init];
+        _utils = [NuiSdkUtils alloc];
+      
         
         // 初始化SDK实例
         [self initNuiWithAppKey:_mappkey
@@ -163,6 +165,9 @@ static BOOL save_log = NO;
                                        stsToken:stsToken 
                                       serviceUrl:serviceUrl];
     
+    //请注意此处的参数配置，其中账号相关需要按照genInitParams的说明填入后才可访问服务
+    //NSString * initParam = [self genInitParams];
+    
     [_nui nui_initialize:[initParam UTF8String] logLevel:NUI_LOG_LEVEL_DEBUG saveLog:save_log];
     NSString *parameters = [self genParams];
     [_nui nui_set_params:[parameters UTF8String]];
@@ -170,8 +175,19 @@ static BOOL save_log = NO;
     NSLog(@"SDK initialized successfully");
 }
 
+ 
+
 - (void)performStartTranscription:(CDVInvokedUrlCommand *)command {
+    
+    if (_audioController == nil) {
+        // 注意：这里audioController模块仅用于录音示例，用户可根据业务场景自行实现这部分代码
+        _audioController = [[AudioController alloc] init:only_recorder];
+        _audioController.delegate = self;
+    }
+    
+    
     if (_nui != nil) {
+       
         // 生成对话参数
         NSString *parameters = [self genDialogParams];
         
@@ -201,6 +217,10 @@ static BOOL save_log = NO;
         [_nui nui_dialog_cancel:NO];
         self.isTranscribing = NO;
         _recordedVoiceData = nil;
+        if (_audioController != nil) {
+            [_audioController stopRecorder:NO];
+        }
+        self.recordedVoiceData = nil;
     }
 }
 
@@ -212,6 +232,11 @@ static BOOL save_log = NO;
         _nui = nil;
     }
     _recordedVoiceData = nil;
+    
+    if (_audioController != nil) {
+        _audioController.delegate = nil;
+    }
+    
     _utils = nil;
     self.isTranscribing = NO;
     self.transcribeCallbackId = nil;
@@ -220,6 +245,28 @@ static BOOL save_log = NO;
 - (void)dealloc {
     NSLog(@"AISpeechTranscriber dealloc");
     [self terminateNui];
+}
+
+
+#pragma mark - Voice Recorder Delegate
+-(void) recorderDidStart{
+    TLog(@"recorderDidStart");
+}
+
+-(void) recorderDidStop{
+    [self.recordedVoiceData setLength:0];
+    TLog(@"recorderDidStop");
+}
+
+-(void) voiceRecorded:(unsigned char*)buffer Length:(int)len {
+    NSData *frame = [NSData dataWithBytes:buffer length:len];
+    @synchronized(_recordedVoiceData){
+        [_recordedVoiceData appendData:frame];
+    }
+}
+
+-(void) voiceDidFail:(NSError*)error{
+    TLog(@"recorder error ");
 }
 
 #pragma mark - Microphone Permission
@@ -254,71 +301,103 @@ static BOOL save_log = NO;
                          stsToken:(NSString *)stsToken 
                         serviceUrl:(NSString *)serviceUrl {
     
-    NSString *debug_path = [_utils createDir];
-    
-    NSMutableDictionary *ticketJsonDict = [NSMutableDictionary dictionary];
-    
-    // 设置认证信息
-    if (token && token.length > 0) {
-        [ticketJsonDict setObject:token forKey:@"token"];
-    } else if (accessKey && accessKey.length > 0 && accessKeySecret && accessKeySecret.length > 0) {
-        [ticketJsonDict setObject:accessKey forKey:@"access_key"];
-        [ticketJsonDict setObject:accessKeySecret forKey:@"access_key_secret"];
-        if (stsToken && stsToken.length > 0) {
-            [ticketJsonDict setObject:stsToken forKey:@"sts_token"];
+    //    NSString *strResourcesBundle = [[NSBundle mainBundle] pathForResource:@"Resources" ofType:@"bundle"];
+    //    NSString *bundlePath = [[NSBundle bundleWithPath:strResourcesBundle] resourcePath]; // 注意: V2.6.2版本开始纯云端功能可不需要资源文件
+        NSString *debug_path = [_utils createDir];
+
+        NSMutableDictionary *ticketJsonDict = [NSMutableDictionary dictionary];
+        //获取账号访问凭证：
+        [_utils getTicket:ticketJsonDict Type:get_token_from_server_for_online_features];
+        
+        [ticketJsonDict setObject: token forKey:@"token"];
+        
+        [ticketJsonDict setObject: appKey  forKey:@"app_key"];
+        
+        
+        if ([ticketJsonDict objectForKey:@"token"] != nil) {
+            NSString *tokenValue = [ticketJsonDict objectForKey:@"token"];
+            if ([tokenValue length] == 0) {
+                TLog(@"The 'token' key exists but the value is empty.");
+            }
+        } else {
+            TLog(@"The 'token' key does not exist.");
         }
-    }
-    
-    [ticketJsonDict setObject:appKey forKey:@"appkey"];
-    
-    // 设置服务URL
-    if (serviceUrl && serviceUrl.length > 0) {
-        [ticketJsonDict setObject:serviceUrl forKey:@"url"];
-    } else {
-        [ticketJsonDict setObject:@"wss://nls-gateway.cn-shanghai.aliyuncs.com:443/ws/v1" forKey:@"url"];
-    }
-    
-    // 工作目录路径，SDK从该路径读取配置文件
-    // [ticketJsonDict setObject:bundlePath forKey:@"workspace"]; // V2.6.2版本开始纯云端功能可不设置workspace
-    
-    // 当初始化SDK时的save_log参数取值为true时，该参数生效。表示是否保存音频debug，该数据保存在debug目录中，需要确保debug_path有效可写
-    [ticketJsonDict setObject:save_wav ? @"true" : @"false" forKey:@"save_wav"];
-    // debug目录。当初始化SDK时的save_log参数取值为true时，该目录用于保存中间音频文件
-    [ticketJsonDict setObject:debug_path forKey:@"debug_path"];
-    
-    // 过滤SDK内部日志通过回调送回到用户层
-    [ticketJsonDict setObject:[NSString stringWithFormat:@"%d", NUI_LOG_LEVEL_NONE] forKey:@"log_track_level"];
-    // 设置本地存储日志文件的最大字节数, 最大将会在本地存储2个设置字节大小的日志文件
-    [ticketJsonDict setObject:@(50 * 1024 * 1024) forKey:@"max_log_file_size"];
-    
-    // FullMix = 0   // 选用此模式开启本地功能并需要进行鉴权注册
-    // FullCloud = 1 // 在线实时语音识别可以选这个
-    // FullLocal = 2 // 选用此模式开启本地功能并需要进行鉴权注册
-    // AsrMix = 3    // 选用此模式开启本地功能并需要进行鉴权注册
-    // AsrCloud = 4  // 在线一句话识别可以选这个
-    // AsrLocal = 5  // 选用此模式开启本地功能并需要进行鉴权注册
-    [ticketJsonDict setObject:@"1" forKey:@"service_mode"]; // 必填
-    
-    [ticketJsonDict setObject:@"cordova_device_id" forKey:@"device_id"]; // 必填, 推荐填入具有唯一性的id, 方便定位问题
-    
-    NSData *data = [NSJSONSerialization dataWithJSONObject:ticketJsonDict options:NSJSONWritingPrettyPrinted error:nil];
-    NSString *jsonStr = [[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding];
-    return jsonStr;
+
+        [ticketJsonDict setObject:@"wss://nls-gateway.cn-shanghai.aliyuncs.com:443/ws/v1" forKey:@"url"]; // 默认
+        //工作目录路径，SDK从该路径读取配置文件
+    //    [ticketJsonDict setObject:bundlePath forKey:@"workspace"]; // V2.6.2版本开始纯云端功能可不设置workspace
+
+        //当初始化SDK时的save_log参数取值为true时，该参数生效。表示是否保存音频debug，该数据保存在debug目录中，需要确保debug_path有效可写
+        [ticketJsonDict setObject:save_wav ? @"true" : @"false" forKey:@"save_wav"];
+        //debug目录。当初始化SDK时的save_log参数取值为true时，该目录用于保存中间音频文件
+        [ticketJsonDict setObject:debug_path forKey:@"debug_path"];
+
+        //过滤SDK内部日志通过回调送回到用户层
+        [ticketJsonDict setObject:[NSString stringWithFormat:@"%d", NUI_LOG_LEVEL_NONE] forKey:@"log_track_level"];
+        //设置本地存储日志文件的最大字节数, 最大将会在本地存储2个设置字节大小的日志文件
+        [ticketJsonDict setObject:@(50 * 1024 * 1024) forKey:@"max_log_file_size"];
+
+        //FullMix = 0   // 选用此模式开启本地功能并需要进行鉴权注册
+        //FullCloud = 1 // 在线实时语音识别可以选这个
+        //FullLocal = 2 // 选用此模式开启本地功能并需要进行鉴权注册
+        //AsrMix = 3    // 选用此模式开启本地功能并需要进行鉴权注册
+        //AsrCloud = 4  // 在线一句话识别可以选这个
+        //AsrLocal = 5  // 选用此模式开启本地功能并需要进行鉴权注册
+        [ticketJsonDict setObject:@"1" forKey:@"service_mode"]; // 必填
+
+        [ticketJsonDict setObject:@"empty_device_id" forKey:@"device_id"]; // 必填, 推荐填入具有唯一性的id, 方便定位问题
+
+        NSData *data = [NSJSONSerialization dataWithJSONObject:ticketJsonDict options:NSJSONWritingPrettyPrinted error:nil];
+        NSString * jsonStr = [[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding];
+        return jsonStr;
+   
 }
 
 - (NSString*)genParams {
     NSMutableDictionary *nls_config = [NSMutableDictionary dictionary];
     [nls_config setValue:@YES forKey:@"enable_intermediate_result"];
-    [nls_config setValue:@YES forKey:@"enable_punctuation_prediction"];
-    [nls_config setValue:@16000 forKey:@"sample_rate"];
-    [nls_config setValue:@"opus" forKey:@"sr_format"];
-    
+//    参数可根据实际业务进行配置
+//    接口说明可见https://help.aliyun.com/document_detail/173528.html
+//    查看 2.开始识别
+//    [nls_config setValue:@"<更新token>" forKey:@"token"];
+//    [nls_config setValue:@YES forKey:@"enable_punctuation_prediction"];
+//    [nls_config setValue:@YES forKey:@"enable_inverse_text_normalization"];
+//    [nls_config setValue:@YES forKey:@"enable_voice_detection"];
+//    [nls_config setValue:@10000 forKey:@"max_start_silence"];
+//    [nls_config setValue:@800 forKey:@"max_end_silence"];
+//    [nls_config setValue:@800 forKey:@"max_sentence_silence"];
+//    [nls_config setValue:@NO forKey:@"enable_words"];
+//    [nls_config setValue:@16000 forKey:@"sample_rate"];
+//    [nls_config setValue:@"opus" forKey:@"sr_format"];
+
     NSMutableDictionary *dictM = [NSMutableDictionary dictionary];
     [dictM setObject:nls_config forKey:@"nls_config"];
     [dictM setValue:@(SERVICE_TYPE_SPEECH_TRANSCRIBER) forKey:@"service_type"]; // 必填
+
+//    如果有HttpDns则可进行设置
+//    [dictM setObject:[_utils getDirectIp] forKey:@"direct_ip"];
+
+    /*若文档中不包含某些参数，但是此功能支持这个参数，可以用如下万能接口设置参数*/
+//    NSMutableDictionary *extend_config = [NSMutableDictionary dictionary];
+//    [extend_config setValue:@YES forKey:@"custom_test"];
+//    [dictM setObject:extend_config forKey:@"extend_config"];
     
     NSData *data = [NSJSONSerialization dataWithJSONObject:dictM options:NSJSONWritingPrettyPrinted error:nil];
-    NSString *jsonStr = [[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding];
+    NSString * jsonStr = [[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding];
+    return jsonStr;
+    
+//    NSMutableDictionary *nls_config = [NSMutableDictionary dictionary];
+//    [nls_config setValue:@YES forKey:@"enable_intermediate_result"];
+//    [nls_config setValue:@YES forKey:@"enable_punctuation_prediction"];
+//    [nls_config setValue:@16000 forKey:@"sample_rate"];
+//    [nls_config setValue:@"opus" forKey:@"sr_format"];
+//    
+//    NSMutableDictionary *dictM = [NSMutableDictionary dictionary];
+//    [dictM setObject:nls_config forKey:@"nls_config"];
+//    [dictM setValue:@(SERVICE_TYPE_SPEECH_TRANSCRIBER) forKey:@"service_type"]; // 必填
+//    
+//    NSData *data = [NSJSONSerialization dataWithJSONObject:dictM options:NSJSONWritingPrettyPrinted error:nil];
+//    NSString *jsonStr = [[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding];
     return jsonStr;
 }
 
@@ -372,7 +451,11 @@ static BOOL save_log = NO;
         [self sendCallbackToJS:@"error" message:[NSString stringWithFormat:@"转写错误：%@（错误码：%d）", errorMsg, code]];
     } else if (nuiEvent == EVENT_MIC_ERROR) {
         NSLog(@"MIC ERROR");
-        [self sendCallbackToJS:@"error" message:@"麦克风异常"];
+        //[self sendCallbackToJS:@"error" message:@"麦克风异常"];
+        if (_audioController != nil) {
+            [_audioController stopRecorder:NO];
+            [_audioController startRecorder];
+        }
     }
     
     // finish 为真（可能是发生错误，也可能是完成识别）表示一次任务生命周期结束，可以开始新的识别
@@ -413,12 +496,16 @@ static BOOL save_log = NO;
 }
 
 - (void)onNuiAudioStateChanged:(NuiAudioState)state {
-    NSLog(@"onNuiAudioStateChanged state=%u", state);
+    TLog(@"onNuiAudioStateChanged state=%u", state);
     if (state == STATE_CLOSE || state == STATE_PAUSE) {
-        // 停止录音
-        _recordedVoiceData = nil;
-    } else if (state == STATE_OPEN) {
-        _recordedVoiceData = [NSMutableData data];
+        if (_audioController != nil) {
+            [_audioController stopRecorder:NO];
+        }
+    } else if (state == STATE_OPEN){
+        self.recordedVoiceData = [NSMutableData data];
+        if (_audioController != nil) {
+            [_audioController startRecorder];
+        }
     }
 }
 

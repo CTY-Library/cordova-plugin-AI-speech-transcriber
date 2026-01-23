@@ -15,12 +15,12 @@ AI语音转文字插件,基于阿里云的SDK (V2.7.1-039-20251125)
 
 安装命令
 ```
- ionic cordova plugin add   https://github.com/CTY-Library/cordova-plugin-AI-speech-transcriber --variable APPKEY=xxxxxx   --variable SERVICEURL=xxxxxx --save
+ ionic cordova plugin add   https://github.com/CTY-Library/cordova-plugin-AI-speech-transcriber --variable APPKEY=xxxxxx   --variable SERVICEURL=wss://nls-gateway.cn-shanghai.aliyuncs.com:443/ws/v1 --save
 ```
 
 本地安装 
  ```
- ionic cordova plugin add  F:\app\cordova-plugin-AI-speech-transcriber --variable APPKEY=1ww23    --variable SERVICEURL=xxxxxx --save  
+ ionic cordova plugin add  F:\app\cordova-plugin-AI-speech-transcriber --variable APPKEY=1ww23    --variable SERVICEURL=wss://nls-gateway.cn-shanghai.aliyuncs.com:443/ws/v1 --save  
  ```
 
 Android平台配置
