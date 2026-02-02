@@ -240,7 +240,8 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
             callbackContext.error("暂无运行中的转写任务");
             return;
         }
-
+        // 保存回调上下文
+        transcribeCallback = callbackContext;
         workerHandler.post(() -> {
             try {
                 isStopping = true;
@@ -251,15 +252,15 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                 releaseAudioRecorder();
 
                 if (stopResult == 0) {
-                    callbackContext.success("转写已停止");
+                     
                     sendCallback("stop", "转写停止成功");
                     Log.i(TAG, "转写停止成功");
-                } else {
-                    callbackContext.error("停止转写失败，错误码：" + stopResult);
+                } else { 
+                    sendCallback("stopError", "转写停止失败，错误码：" + stopResult);
                     Log.e(TAG, "停止转写失败，错误码：" + stopResult);
                 }
-            } catch (Exception e) {
-                callbackContext.error("停止转写异常：" + e.getMessage());
+            } catch (Exception e) { 
+                sendCallback("stopError", "转写停止异常：" + e.getMessage());
                 Log.e(TAG, "停止转写异常", e);
             }
         });
