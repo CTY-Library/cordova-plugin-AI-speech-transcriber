@@ -103,25 +103,22 @@ static BOOL save_log = NO;
 
 - (void)stopTranscribe:(CDVInvokedUrlCommand *)command {
     CDVPluginResult *pluginResult = nil;
-    
+     self.transcribeCallbackId = command.callbackId;
     @try {
-        if (!self.isTranscribing) {
-            pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"未在转写中，无需停止"];
-            [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+        if (!self.isTranscribing) { 
+            [self sendCallbackToJS:@"stopTranscribe" message:@"未在转写中，无需停止"];
             return;
         }
         
         // 停止转写
         [self performStopTranscription];
         
-        // 停止成功
-        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"转写已停止"];
-    } @catch (NSException *exception) {
-        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:[NSString stringWithFormat:@"停止转写失败：%@", exception.reason]];
+        // 停止成功 
+        [self sendCallbackToJS:@"stopTranscribe" message:@"转写已停止"];
+    } @catch (NSException *exception) {    
+        [self sendCallbackToJS:@"stopTranscribeError" message:[NSString stringWithFormat:@"停止转写失败：%@", exception.reason]];
     }
-    
-    [self.commandDelegate sendPluginResult:pluginResult callbackId:self.transcribeCallbackId];
-    self.transcribeCallbackId = nil;
+     
 }
 
 - (void)release:(CDVInvokedUrlCommand *)command {
