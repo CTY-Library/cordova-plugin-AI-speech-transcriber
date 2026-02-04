@@ -96,9 +96,6 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
     @Override
     public boolean execute(String action, JSONArray args, CallbackContext callbackContext) {
         try {
-            String version = nui_instance.GetVersion();
-            Log.i(TAG, "当前版本号 sdk version: " + version);
-
             switch (action) {
                 case "init":
                     initSDK(args.getJSONObject(0), callbackContext);
