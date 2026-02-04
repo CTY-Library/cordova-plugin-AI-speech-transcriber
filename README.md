@@ -80,8 +80,12 @@ Android平台配置
                 // 开始转写
                 AISpeechTranscriber.startTranscribe(            
                 (e : any) => {
-                    //成功 
-                    this.resultWordMsg += '\n\r\t' + JSON.stringify(e);   
+                    var result = JSON.parse(e.message)?.payload?.result ?? "";
+                    if(result!=''){
+                        this.resultWordMsg = result;
+                    }
+                    //成功
+                    //this.resultWordMsg = '\r\n' + (result==''?JSON.stringify(e):result) + '\n';   
                 }, (e : any) => {
                     alert(JSON.stringify(e))//失败
             });
@@ -92,18 +96,8 @@ Android平台配置
     async stopAudio(){
         AISpeechTranscriber.stopTranscribe(            
         (e : any) => {
-            //成功
-            this.resultWordMsg += '\n' + JSON.stringify(e);
-
-            // 销毁实例
-            AISpeechTranscriber.release (            
-            (e : any) => {
-                //成功
-                this.resultWordMsg += '\n' + JSON.stringify(e);
-            }, (e : any) => {
-                alert(JSON.stringify(e))//失败
-            });
-
+            //成功 
+            this.ctrlService.Toast("录音停止成功", 'middle', 2000, 'login-toast');
         }, (e : any) => {
             alert(JSON.stringify(e))//失败
         });

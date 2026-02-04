@@ -114,7 +114,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                     return false;
             }
         }  catch (Exception e) {
-            callbackContext.error("操作失败：" + e.getMessage());
+           // callbackContext.error("操作失败：" + e.getMessage());
             Log.e(TAG, "执行操作异常", e);
             return false;
         }
@@ -186,10 +186,10 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
             return;
         }
         // 校验转写状态
-        if (isTranscribing) {
-            callbackContext.error("当前已有转写任务在运行");
-            return;
-        }
+//        if (isTranscribing) {
+//            callbackContext.error("当前已有转写任务在运行");
+//            return;
+//        }
 
         // 保存回调上下文
         transcribeCallback = callbackContext;
@@ -221,6 +221,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
             Log.i(TAG, "start done with " + ret);
             if (ret == Constants.NuiResultCode.SUCCESS) {
                 Log.i(TAG, "实时转写启动成功");
+                isTranscribing = true;
             }
 
 
@@ -233,34 +234,16 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
 
     // ====================== 停止转写 ======================
     private void stopTranscription(CallbackContext callbackContext) {
-        if (!isTranscribing) {
-            callbackContext.error("暂无运行中的转写任务");
-            return;
-        }
-        // 保存回调上下文
-        transcribeCallback = callbackContext;
-        workerHandler.post(() -> {
-            try {
-                isStopping = true;
-                long stopResult = nui_instance.stopDialog();
+        long stopResult = nui_instance.stopDialog();
+         if (stopResult == 0) {
                 isTranscribing = false;
-
-                // 释放音频资源
-                releaseAudioRecorder();
-
-                if (stopResult == 0) {
-                     
-                    sendCallback("stop", "转写停止成功");
-                    Log.i(TAG, "转写停止成功");
-                } else { 
-                    sendCallback("stopError", "转写停止失败，错误码：" + stopResult);
-                    Log.e(TAG, "停止转写失败，错误码：" + stopResult);
-                }
-            } catch (Exception e) { 
-                sendCallback("stopError", "转写停止异常：" + e.getMessage());
-                Log.e(TAG, "停止转写异常", e);
-            }
-        });
+                callbackContext.success("Recognition stopped 停止语音识别成功");
+                Log.i(TAG, "转写停止成功");
+         } else {
+            callbackContext.error("转写停止失败，错误码：" + stopResult);
+            Log.e(TAG, "停止转写失败，错误码：" + stopResult);
+        }
+ 
     }
 
     // ====================== 释放所有资源 ======================
@@ -326,33 +309,6 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
         return authParams.toString();
     }
 
-
-
-    /**
-     * 生成转写参数
-     */
-    private String generateAsrParams() throws JSONException {
-        JSONObject nlsConfig = new JSONObject();
-        nlsConfig.put("enable_intermediate_result", true); // 开启实时中间结果
-        nlsConfig.put("enable_punctuation_prediction", true); // 开启标点预测
-        nlsConfig.put("sample_rate", SAMPLE_RATE);
-        nlsConfig.put("sr_format", "opus");
-
-        JSONObject root = new JSONObject();
-        root.put("nls_config", nlsConfig);
-        root.put("service_type", Constants.kServiceTypeSpeechTranscriber);
-
-        return root.toString();
-    }
-
-    /**
-     * 生成对话参数
-     */
-    private String generateDialogParams() throws JSONException {
-        JSONObject params = new JSONObject();
-        params = Auth.refreshTokenIfNeed(params, 1800); // 30分钟刷新 token
-        return params.toString();
-    }
 
     /**
      * 初始化音频录制器
@@ -650,17 +606,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
     private String g_sk = "";
     private String g_url = "";
 
-    private final Map<String, List<String>> paramMap = new HashMap<>();
-
-    private final static int WAVE_FRAM_SIZE = 20 * 2 * 1 * SAMPLE_RATE / 1000; //20ms audio for 16k/16bit/mono
-
-
-
     private String mDebugPath = "";
-    private String curTaskId = "";
-    private LinkedBlockingQueue<byte[]> tmpAudioQueue = new LinkedBlockingQueue();
-
-
 
     private String genInitParams(String workpath, String debug_path) {
         String str = "";
