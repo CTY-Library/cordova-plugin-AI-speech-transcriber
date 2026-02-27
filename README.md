@@ -58,6 +58,17 @@ Android平台配置
 
 使用案例关键代码
 ```
+
+       // 初始化
+         AISpeechTranscriber.init(
+            { saveAudio: false, lang: 'zh_CN', token:"xxxx" },
+            (e : any) => {
+                alert(JSON.stringify(e));//成功 
+
+            }, (e : any) => {
+                alert(JSON.stringify(e))//失败
+            });
+
   async audioToWord(){
         this.ctrlService.Toast("初始化录音...", 'middle', 2000, 'login-toast');
         this.resultWordMsg += '\n' + "你好,世界!";
