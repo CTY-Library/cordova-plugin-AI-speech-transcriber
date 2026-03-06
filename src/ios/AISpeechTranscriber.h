@@ -95,6 +95,17 @@ typedef NS_ENUM(NSInteger, AISpeechTranscriberState) {
 @property NSString *transcribeCallbackId;
 @property NSString *mserviceurl;
 @property  NSString *mappkey;
+
+// TTS相关属性
+@property BOOL isTTSInitialized;
+@property BOOL isTTSRunning;
+@property NSString *ttsCallbackId;
+@property NSString *ttsVoice;
+@property NSString *ttsFormat;
+@property NSInteger ttsSampleRate;
+@property NSInteger ttsVolume;
+@property NSInteger ttsSpeechRate;
+@property NSInteger ttsPitchRate;
 /** 代理对象 */
 @property (nonatomic, weak, nullable) id<AISpeechTranscriberDelegate> delegate;
 /** 当前转写状态 */
@@ -137,6 +148,37 @@ typedef NS_ENUM(NSInteger, AISpeechTranscriberState) {
  * 停止语音转写（停止录音，等待最终结果）
  */
 - (void)stopTranscription;
+
+/**
+ * 初始化语音合成
+ * @param config TTS配置参数
+ * @return 是否初始化成功
+ */
+- (BOOL)initTTSWithConfig:(NSDictionary *)config;
+
+/**
+ * 开始语音合成
+ * @param text 要合成的文本
+ * @return 是否启动成功
+ */
+- (BOOL)startTTSWithText:(NSString *)text;
+
+/**
+ * 发送TTS文本（流式）
+ * @param text 要合成的文本
+ * @return 是否发送成功
+ */
+- (BOOL)sendTTSText:(NSString *)text;
+
+/**
+ * 停止语音合成
+ */
+- (void)stopTTS;
+
+/**
+ * 释放TTS资源
+ */
+- (void)releaseTTS;
 
 /**
  * 取消语音转写（立即终止，不返回结果）

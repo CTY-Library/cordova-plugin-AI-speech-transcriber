@@ -3,10 +3,10 @@
         id="cordova-plugin-AI-speech-transcriber"
         version="1.1.1">
     <name>AISpeechTranscriber</name>
-    <description>基于阿里云SDK的Cordova语音转写插件</description>
+    <description>基于阿里云SDK的Cordova语音转写和语音合成插件</description>
     <author>CTY-Library</author>
     <license>MIT</license>
-    <keywords>cordova, speech, transcribe, aliyun, AI</keywords>
+    <keywords>cordova, speech, transcribe, aliyun, AI, TTS</keywords>
     <repo>https://github.com/CTY-Library/cordova-plugin-AI-speech-transcriber</repo>
     <!-- 插件配置参数 -->  
     <preference name="SERVICEURL"/>
@@ -18,7 +18,7 @@
 
     <!-- 平台配置：Android -->
     <platform name="android">
-        <!-- 注入AI语音识别所需的Key和token到AndroidManifest.xml -->
+        <!-- 注入AI语音识别所需的Key和token到AndroidManifest.xml -->          
         <config-file target="AndroidManifest.xml" parent="/manifest/application">          
             <meta-data android:name="com.plugin.ai.speech.SERVICEURL" android:value="$SERVICEURL" />            
             <meta-data android:name="com.plugin.ai.speech.APPKEY" android:value="$APPKEY" />
@@ -89,7 +89,7 @@
         
         <!-- 权限配置 -->
         <config-file target="*-Info.plist" parent="NSMicrophoneUsageDescription">
-            <string>需要使用麦克风进行语音转写</string>
+            <string>需要使用麦克风进行语音转写和语音合成</string>
         </config-file>
     </platform>
 </plugin>

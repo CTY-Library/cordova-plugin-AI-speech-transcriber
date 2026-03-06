@@ -26,6 +26,7 @@ import com.alibaba.fastjson.JSONObject;
 import com.alibaba.idst.nui.AsrResult;
 import com.alibaba.idst.nui.Constants;
 import com.alibaba.idst.nui.INativeNuiCallback;
+import com.alibaba.idst.nui.INativeStreamInputTtsCallback;
 import com.alibaba.idst.nui.KwsResult;
 import com.alibaba.idst.nui.NativeNui;
 
@@ -34,8 +35,6 @@ import org.apache.cordova.CordovaPlugin;
 import org.apache.cordova.PermissionHelper;
 import org.apache.cordova.PluginResult;
 import org.json.JSONArray;
-//import org.json.JSONException;
-//import org.json.JSONObject;
 
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -62,6 +61,11 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
     private static final int PERMISSION_WRITE_STORAGE = 1002;
     private static final int READ_EXTERNAL_STORAGE =1003;
 
+    // TTS相关常量
+    private static final int TTS_SAMPLE_RATE = 16000;
+    private static final int TTS_VOLUME = 50;
+    private static final int TTS_SPEECH_RATE = 0;
+    private static final int TTS_PITCH_RATE = 0;
 
     private String token;
 
@@ -69,6 +73,8 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
 
     // SDK 核心实例
     private NativeNui nui_instance = new NativeNui();
+    // TTS 核心实例
+    private NativeNui tts_instance;
     // 音频录制相关
     private AudioRecord audioRecorder;
     private LinkedBlockingQueue<byte[]> audioQueue = new LinkedBlockingQueue<>();
@@ -80,15 +86,27 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
     private boolean isSdkInitialized = false;
     private boolean isTranscribing = false;
     private boolean isStopping = false;
+    private boolean isTTSInitialized = false;
+    private boolean isTTSRunning = false;
     private String currentTaskId = "";
+    private String currentTTSTaskId = "";
     private String debugPath;
 
+    // TTS相关配置
+    private String ttsToken = "";
+    private String ttsVoice = "zhixiaoxia";
+    private String ttsFormat = "pcm";
+    private int ttsSampleRate = TTS_SAMPLE_RATE;
+    private int ttsVolume = TTS_VOLUME;
+    private int ttsSpeechRate = TTS_SPEECH_RATE;
+    private int ttsPitchRate = TTS_PITCH_RATE;
 
     // 异步线程
     private HandlerThread workerThread;
     private Handler workerHandler;
     // Cordova 回调上下文
     private CallbackContext transcribeCallback;
+    private CallbackContext ttsCallback;
 
     /**
      * Cordova 插件核心入口：处理 JS 调用的方法
@@ -108,6 +126,37 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                     return true;
                 case "release":
                     releaseAllResources(callbackContext);
+                    return true;
+                case "initTTS":
+                    try {
+                        org.json.JSONObject orgConfig = args.getJSONObject(0);
+                        com.alibaba.fastjson.JSONObject fastConfig = new com.alibaba.fastjson.JSONObject();
+                        
+                        // 转换JSONObject
+                        java.util.Iterator<String> keys = orgConfig.keys();
+                        while (keys.hasNext()) {
+                            String key = keys.next();
+                            Object value = orgConfig.get(key);
+                            fastConfig.put(key, value);
+                        }
+                        
+                        initTTS(fastConfig, callbackContext);
+                    } catch (Exception e) {
+                        callbackContext.error("TTS配置参数解析失败：" + e.getMessage());
+                        Log.e(TAG, "TTS配置参数解析异常", e);
+                    }
+                    return true;
+                case "startTTS":
+                    startTTS(args.getString(0), callbackContext);
+                    return true;
+                case "sendTTSText":
+                    sendTTSText(args.getString(0), callbackContext);
+                    return true;
+                case "stopTTS":
+                    stopTTS(callbackContext);
+                    return true;
+                case "releaseTTS":
+                    releaseTTSResources(callbackContext);
                     return true;
                 default:
                     callbackContext.error("不支持的操作：" + action);
@@ -282,32 +331,6 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
     }
 
     // ====================== 辅助方法 ======================
-    /**
-     * 生成 SDK 初始化参数
-     */
-    private String generateInitParams() throws JSONException {
-        //JSONObject params = new JSONObject();
-
-        // 设置认证参数
-       // Auth.GetTicketMethod authMethod = Auth.GetTicketMethod. GET_TOKEN_IN_CLIENT_FOR_ONLINE_FEATURES ;// getAuthMethod(); GET_TOKEN_FROM_SERVER_FOR_ONLINE_FEATURES
-        JSONObject authParams = new JSONObject();
-        authParams.put("token", token);
-//        authParams.put("appkey", appKey);
-//        authParams.put("ak_id", accessKey);
-//        authParams.put("ak_secret", accessKeySecret);
-
-        // 基础配置
-        authParams.put("device_id", "android_" + Build.SERIAL);
-        authParams.put("url", serviceUrl);
-        authParams.put("workspace", CommonUtils.getModelPath(cordova.getActivity())); // V2.6.2版本开始纯云端功能可不设置workspace
-        authParams.put("save_wav", "false");
-        authParams.put("debug_path", debugPath);
-        authParams.put("max_log_file_size", 50 * 1024 * 1024);
-        authParams.put("log_track_level", Constants.LogLevel.toInt(Constants.LogLevel.LOG_LEVEL_NONE));
-        authParams.put("service_mode", Constants.ModeFullCloud);
-
-        return authParams.toString();
-    }
 
 
     /**
@@ -462,7 +485,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
             try {
 
                 // 生成初始化参数
-                String initParams = generateInitParams();
+                String initParams = genInitParams("", mDebugPath);
                 // 初始化 SDK
                 int initResult = nui_instance.initialize(
                         this,
@@ -640,7 +663,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                 }
             }
             Log.i(TAG, "Use method:" + method);
-            JSONObject object = Auth.getTicket(method);
+            com.alibaba.fastjson.JSONObject object = Auth.getTicket(method);
             if (!object.containsKey("token")) {
                 Log.e(TAG, "Cannot get token !!! 未获得有效临时凭证");
 
@@ -674,7 +697,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
             // 这里只能选择FullMix和FullCloud
             object.put("service_mode", Constants.ModeFullCloud); // 必填
             str = object.toString();
-        } catch (JSONException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
 
@@ -688,7 +711,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
     private String genParams() {
         String params = "";
         try {
-            JSONObject nls_config = new JSONObject();
+            com.alibaba.fastjson.JSONObject nls_config = new com.alibaba.fastjson.JSONObject();
 
             //参数可根据实际业务进行配置
             //接口说明可见https://help.aliyun.com/document_detail/173528.html
@@ -708,14 +731,14 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
             // 设置文档中不存在的参数, key为custom_params, value以json string的形式设置参数
             // 如下示例传入{vocabulary:{"热词1":2,"热词2":2}} 表示在payload下添加参数
             // payload.vocabulary : {"热词1":2,"热词2":2}
-//            JSONObject extend_config = new JSONObject();
-//            JSONObject vocab = new JSONObject();
+//            com.alibaba.fastjson.JSONObject extend_config = new com.alibaba.fastjson.JSONObject();
+//            com.alibaba.fastjson.JSONObject vocab = new com.alibaba.fastjson.JSONObject();
 //            vocab.put("热词1", 2);
 //            vocab.put("热词2", 2);
 //            extend_config.put("vocabulary", vocab);
 //            nls_config.put("extend_config", extend_config);
 
-            JSONObject tmp = new JSONObject();
+            com.alibaba.fastjson.JSONObject tmp = new com.alibaba.fastjson.JSONObject();
             tmp.put("nls_config", nls_config);
             tmp.put("service_type", Constants.kServiceTypeSpeechTranscriber); // 必填
 
@@ -723,18 +746,98 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
 //            tmp.put("direct_ip", Utils.getDirectIp());
 
             params = tmp.toString();
-        } catch (JSONException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
         return params;
     }
 
 
+    /**
+     * 初始化TTS语音合成
+     */
+    private void initTTS(com.alibaba.fastjson.JSONObject config, CallbackContext callbackContext) {
+        try {
+            // 从config中获取TTS相关参数，包括token
+            if (config.containsKey("token")) {
+                ttsToken = config.getString("token");
+            }
+            if (config.containsKey("voice")) {
+                ttsVoice = config.getString("voice");
+            }
+            if (config.containsKey("format")) {
+                ttsFormat = config.getString("format");
+            }
+            if (config.containsKey("sampleRate")) {
+                ttsSampleRate = config.getInteger("sampleRate");
+            }
+            if (config.containsKey("volume")) {
+                ttsVolume = config.getInteger("volume");
+            }
+            if (config.containsKey("speechRate")) {
+                ttsSpeechRate = config.getInteger("speechRate");
+            }
+            if (config.containsKey("pitchRate")) {
+                ttsPitchRate = config.getInteger("pitchRate");
+            }
+
+            // 创建TTS实例
+            if (tts_instance == null) {
+                tts_instance = new NativeNui(Constants.ModeType.MODE_STREAM_INPUT_TTS);
+            }
+
+            // 异步初始化TTS
+            workerHandler.post(() -> {
+                try {
+                    // 生成TTS初始化参数
+                    String ticket = genTTSTicket();
+                    String parameters = genTTSParameters();
+
+                    // 初始化TTS SDK
+                    int ret = tts_instance.startStreamInputTts(
+                            new INativeStreamInputTtsCallback() {
+                                @Override
+                                public void onStreamInputTtsEventCallback(StreamInputTtsEvent event, String task_id, String session_id, int ret_code, String error_msg, String timestamp, String all_response) {
+                                    handleTTSEvent(event, task_id, session_id, ret_code, error_msg, timestamp, all_response);
+                                }
+
+                                @Override
+                                public void onStreamInputTtsDataCallback(byte[] data) {
+                                    handleTTSData(data);
+                                }
+                            },
+                            ticket,
+                            parameters,
+                            "",
+                            Constants.LogLevel.toInt(Constants.LogLevel.LOG_LEVEL_VERBOSE),
+                            false
+                    );
+
+                    if (ret == Constants.NuiResultCode.SUCCESS) {
+                        isTTSInitialized = true;
+                        callbackContext.success("TTS初始化成功");
+                        Log.i(TAG, "TTS初始化完成");
+                    } else {
+                        String errorMsg = "TTS初始化失败，错误码：" + ret;
+                        callbackContext.error(errorMsg);
+                        Log.e(TAG, errorMsg);
+                    }
+                } catch (Exception e) {
+                    callbackContext.error("TTS初始化异常：" + e.getMessage());
+                    Log.e(TAG, "TTS初始化异常", e);
+                }
+            });
+        } catch (Exception e) {
+            callbackContext.error("TTS初始化参数解析失败：" + e.getMessage());
+            Log.e(TAG, "TTS初始化参数解析异常", e);
+        }
+    }
+
 
     private String genDialogParams() {
         String params = "";
         try {
-            JSONObject dialog_param = new JSONObject();
+            com.alibaba.fastjson.JSONObject dialog_param = new com.alibaba.fastjson.JSONObject();
             // 运行过程中可以在startDialog时更新临时参数，尤其是更新过期token
             // 注意: 若下一轮对话不再设置参数，则继续使用初始化时传入的参数
             long distance_expire_time_30m = 1800;
@@ -744,17 +847,238 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
 //            dialog_param.put("app_key", "");
 //            dialog_param.put("token", "");
             params = dialog_param.toString();
-        } catch (JSONException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
-
-        Log.i(TAG, "dialog params: " + params);
         return params;
     }
 
+    /**
+     * 开始TTS语音合成
+     */
+    private void startTTS(String text, CallbackContext callbackContext) {
+        try {
+            if (!isTTSInitialized) {
+                callbackContext.error("TTS未初始化，请先调用initTTS");
+                return;
+            }
 
+            if (isTTSRunning) {
+                callbackContext.error("TTS已在运行中，请勿重复启动");
+                return;
+            }
 
+            ttsCallback = callbackContext;
+            isTTSRunning = true;
 
+            // 异步启动TTS
+            workerHandler.post(() -> {
+                try {
+                    // 发送文本进行语音合成
+                    int ret = tts_instance.sendStreamInputTts(text);
+                    if (ret == Constants.NuiResultCode.SUCCESS) {
+                        callbackContext.success("TTS文本发送成功");
+                        Log.i(TAG, "TTS文本发送成功: " + text);
+                    } else {
+                        String errorMsg = "TTS文本发送失败，错误码：" + ret;
+                        callbackContext.error(errorMsg);
+                        Log.e(TAG, errorMsg);
+                    }
+                } catch (Exception e) {
+                    callbackContext.error("TTS文本发送异常：" + e.getMessage());
+                    Log.e(TAG, "TTS文本发送异常", e);
+                }
+            });
+        } catch (Exception e) {
+            callbackContext.error("启动TTS失败：" + e.getMessage());
+            Log.e(TAG, "启动TTS异常", e);
+        }
+    }
 
+    /**
+     * 发送TTS文本（流式）
+     */
+    private void sendTTSText(String text, CallbackContext callbackContext) {
+        try {
+            if (!isTTSInitialized || !isTTSRunning) {
+                callbackContext.error("TTS未初始化或未运行，无法发送文本");
+                return;
+            }
+
+            // 异步发送文本
+            workerHandler.post(() -> {
+                try {
+                    int ret = tts_instance.sendStreamInputTts(text);
+                    if (ret == Constants.NuiResultCode.SUCCESS) {
+                        callbackContext.success("TTS文本发送成功");
+                        Log.i(TAG, "TTS文本发送成功: " + text);
+                    } else {
+                        String errorMsg = "TTS文本发送失败，错误码：" + ret;
+                        callbackContext.error(errorMsg);
+                        Log.e(TAG, errorMsg);
+                    }
+                } catch (Exception e) {
+                    callbackContext.error("TTS文本发送异常：" + e.getMessage());
+                    Log.e(TAG, "TTS文本发送异常", e);
+                }
+            });
+        } catch (Exception e) {
+            callbackContext.error("发送TTS文本失败：" + e.getMessage());
+            Log.e(TAG, "发送TTS文本异常", e);
+        }
+    }
+
+    /**
+     * 停止TTS
+     */
+    private void stopTTS(CallbackContext callbackContext) {
+        try {
+            if (!isTTSInitialized || !isTTSRunning) {
+                callbackContext.error("TTS未初始化或未运行");
+                return;
+            }
+
+            // 异步停止TTS
+            workerHandler.post(() -> {
+                try {
+                    tts_instance.stopStreamInputTts();
+                    isTTSRunning = false;
+                    callbackContext.success("TTS停止成功");
+                    Log.i(TAG, "TTS停止成功");
+                } catch (Exception e) {
+                    callbackContext.error("停止TTS异常：" + e.getMessage());
+                    Log.e(TAG, "停止TTS异常", e);
+                }
+            });
+        } catch (Exception e) {
+            callbackContext.error("停止TTS失败：" + e.getMessage());
+            Log.e(TAG, "停止TTS异常", e);
+        }
+    }
+
+    /**
+     * 释放TTS资源
+     */
+    private void releaseTTSResources(CallbackContext callbackContext) {
+        try {
+            // 异步释放TTS资源
+            workerHandler.post(() -> {
+                try {
+                    if (tts_instance != null) {
+                        tts_instance.release();
+                        tts_instance = null;
+                    }
+                    isTTSInitialized = false;
+                    isTTSRunning = false;
+                    ttsCallback = null;
+                    callbackContext.success("TTS资源释放成功");
+                    Log.i(TAG, "TTS资源释放完成");
+                } catch (Exception e) {
+                    callbackContext.error("释放TTS资源异常：" + e.getMessage());
+                    Log.e(TAG, "释放TTS资源异常", e);
+                }
+            });
+        } catch (Exception e) {
+            callbackContext.error("释放TTS资源失败：" + e.getMessage());
+            Log.e(TAG, "释放TTS资源异常", e);
+        }
+    }
+
+    /**
+     * 生成TTS初始化参数
+     */
+    private String genTTSTicket() {
+        String ticket = "";
+        try {
+            com.alibaba.fastjson.JSONObject object = new com.alibaba.fastjson.JSONObject();
+            object.put("token", ttsToken);
+            object.put("url", serviceUrl);
+            ticket = object.toString();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        Log.i(TAG, "TTS ticket: " + ticket);
+        return ticket;
+    }
+
+    /**
+     * 生成TTS参数
+     */
+    private String genTTSParameters() {
+        String params = "";
+        try {
+            com.alibaba.fastjson.JSONObject object = new com.alibaba.fastjson.JSONObject();
+            object.put("enable_subtitle", true);
+            object.put("voice", ttsVoice);
+            object.put("format", ttsFormat);
+            object.put("sample_rate", ttsSampleRate);
+            object.put("volume", ttsVolume);
+            object.put("speech_rate", ttsSpeechRate);
+            params = object.toString();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        Log.i(TAG, "TTS parameters: " + params);
+        return params;
+    }
+
+    /**
+     * 处理TTS事件回调
+     */
+    private void handleTTSEvent(INativeStreamInputTtsCallback.StreamInputTtsEvent event, 
+                             String task_id, String session_id, int ret_code, 
+                             String error_msg, String timestamp, String all_response) {
+        Log.d(TAG, "TTS event: " + event + ", session: " + session_id + ", task: " + task_id);
+
+        if (ttsCallback != null) {
+            com.alibaba.fastjson.JSONObject fastResult = new com.alibaba.fastjson.JSONObject();
+            try {
+                fastResult.put("type", "tts_event");
+                fastResult.put("event", event.toString());
+                fastResult.put("taskId", task_id);
+                fastResult.put("sessionId", session_id);
+                fastResult.put("retCode", ret_code);
+                fastResult.put("errorMsg", error_msg != null ? error_msg : "");
+                fastResult.put("timestamp", timestamp != null ? timestamp : "");
+                fastResult.put("allResponse", all_response != null ? all_response : "");
+
+                // 转换为org.json.JSONObject以便Cordova使用
+                org.json.JSONObject result = new org.json.JSONObject(fastResult.toJSONString());
+                PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, result);
+                pluginResult.setKeepCallback(true);
+                ttsCallback.sendPluginResult(pluginResult);
+            } catch (com.alibaba.fastjson.JSONException e) {
+                Log.e(TAG, "TTS事件回调JSON构建失败", e);
+            } catch (Exception e) {
+                Log.e(TAG, "TTS事件回调JSON转换失败", e);
+            }
+        }
+    }
+
+    /**
+     * 处理TTS数据回调
+     */
+    private void handleTTSData(byte[] data) {
+        Log.d(TAG, "TTS data received, length: " + data.length);
+
+        if (ttsCallback != null) {
+            com.alibaba.fastjson.JSONObject fastResult = new com.alibaba.fastjson.JSONObject();
+            try {
+                fastResult.put("type", "tts_data");
+                fastResult.put("data", android.util.Base64.encodeToString(data, android.util.Base64.NO_WRAP));
+                fastResult.put("length", data.length);
+
+                // 转换为org.json.JSONObject以便Cordova使用
+                org.json.JSONObject result = new org.json.JSONObject(fastResult.toJSONString());
+                PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, result);
+                pluginResult.setKeepCallback(true);
+                ttsCallback.sendPluginResult(pluginResult);
+            } catch (com.alibaba.fastjson.JSONException e) {
+                Log.e(TAG, "TTS数据回调JSON构建失败", e);
+            } catch (Exception e) {
+                Log.e(TAG, "TTS数据回调JSON转换失败", e);
+            }
+        }
+    }
 
 }

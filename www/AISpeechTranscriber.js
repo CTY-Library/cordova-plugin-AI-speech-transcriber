@@ -37,6 +37,60 @@ var AISpeechTranscriber = {
      */
     release: function (success, error) {
         exec(success, error, 'AISpeechTranscriber', 'release', []);
+    },
+
+    /**
+     * 初始化语音合成
+     * @param {Object} config - TTS配置参数
+     * @param {string} [config.voice="zhixiaoxia"] - 音色
+     * @param {string} [config.format="pcm"] - 音频格式
+     * @param {number} [config.sampleRate=16000] - 采样率
+     * @param {number} [config.volume=50] - 音量
+     * @param {number} [config.speechRate=0] - 语速
+     * @param {number} [config.pitchRate=0] - 语调
+     * @param {Function} success - 成功回调
+     * @param {Function} error - 失败回调
+     */
+    initTTS: function (config, success, error) {
+        exec(success, error, 'AISpeechTranscriber', 'initTTS', [config]);
+    },
+
+    /**
+     * 开始语音合成
+     * @param {string} text - 要合成的文本
+     * @param {Function} success - 成功回调
+     * @param {Function} error - 失败回调
+     */
+    startTTS: function (text, success, error) {
+        exec(success, error, 'AISpeechTranscriber', 'startTTS', [text]);
+    },
+
+    /**
+     * 发送TTS文本（流式）
+     * @param {string} text - 要合成的文本
+     * @param {Function} success - 成功回调
+     * @param {Function} error - 失败回调
+     */
+    sendTTSText: function (text, success, error) {
+        exec(success, error, 'AISpeechTranscriber', 'sendTTSText', [text]);
+    },
+
+    /**
+     * 停止语音合成
+     * @param {Function} success - 成功回调
+     * @param {Function} error - 失败回调
+     */
+    stopTTS: function (success, error) {
+        exec(success, error, 'AISpeechTranscriber', 'stopTTS', []);
+    },
+
+    /**
+     * 释放TTS资源
+     * @param {Function} success - 成功回调
+     * @param {Function} error - 失败回调
+     */
+    releaseTTS: function (success, error) {
+        exec(success, error, 'AISpeechTranscriber', 'releaseTTS', []);
     }
 };
 
