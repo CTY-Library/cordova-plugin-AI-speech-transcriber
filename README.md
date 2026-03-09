@@ -318,6 +318,44 @@ AISpeechTranscriber.startTTS("测试语音合成", (result) => {
 }, (error) => {
     console.error("TTS失败:", error);
 });
+
+
+ ailiyuTTS_init(){
+        this.ctrlService.Toast("初始化TTS...", 'middle', 2000, 'login-toast');
+        // 初始化TTS
+        var cfg =  
+        {
+            "token": "xxx",
+            "voice": "zhixiaoxia",
+            "format": "pcm", 
+            "sample_rate": 16000,
+            "volume": 50,
+            "speech_rate": 0,
+            "pitch_rate": 0,
+            "enable_subtitle": true
+        } 
+        AISpeechTranscriber.initTTS(
+         cfg ,
+        (e : any) => {
+            alert(JSON.stringify(e));//成功 
+
+        }, (e : any) => {
+            alert(JSON.stringify(e))//失败
+        });
+    }
+
+    ailiyuTTS_begin(){
+         this.ctrlService.Toast("开始朗读成功...", 'middle', 2000, 'login-toast'); 
+         AISpeechTranscriber.sendTTSText(
+         '你好,世界2026' ,
+        (e : any) => {
+            alert(JSON.stringify(e));//成功 
+
+        }, (e : any) => {
+            alert(JSON.stringify(e))//失败
+        });
+
+    }
 ```
 
 ## 错误码说明
