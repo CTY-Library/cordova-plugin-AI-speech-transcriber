@@ -2,9 +2,8 @@
 #import <Cordova/CDV.h>
 #import <AVFoundation/AVFoundation.h>
 #define DEBUG_MODE
-#import "nuisdk.framework/Headers/NeoNui.h"
+#import "nuisdk.framework/Headers/StreamInputTts.h"
 #import "NuiSdkUtils.h"
-
 #import "AudioController.h"
 #import <AudioToolbox/AudioToolbox.h>
 #include <sys/time.h>
@@ -75,7 +74,7 @@ typedef NS_ENUM(NSInteger, AISpeechTranscriberState) {
 /**
  * AI语音转写核心类
  */
-@interface AISpeechTranscriber : CDVPlugin <ConvVoiceRecorderDelegate, NeoNuiSdkDelegate>
+@interface AISpeechTranscriber : CDVPlugin <ConvVoiceRecorderDelegate, StreamInputTtsDelegate>
 
 // 阿里云SDK核心实例
 @property NeoNui *nui;
@@ -106,6 +105,14 @@ typedef NS_ENUM(NSInteger, AISpeechTranscriberState) {
 @property NSInteger ttsVolume;
 @property NSInteger ttsSpeechRate;
 @property NSInteger ttsPitchRate;
+
+// TTS音频播放相关属性
+@property StreamInputTts *ttsNui;
+@property AudioController *ttsAudioController;
+@property BOOL isTTSPlaying;
+@property BOOL isTTSFinishSend;
+@property NSString *currentTTSSessionId;
+@property BOOL shouldStopSendingTTS;
 /** 代理对象 */
 @property (nonatomic, weak, nullable) id<AISpeechTranscriberDelegate> delegate;
 /** 当前转写状态 */

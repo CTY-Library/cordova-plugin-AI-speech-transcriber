@@ -1,9 +1,9 @@
 #import <Cordova/CDV.h>
 #import <Foundation/Foundation.h>
 #define DEBUG_MODE
-#import "nuisdk.framework/Headers/NeoNui.h"
+#import "nuisdk.framework/Headers/StreamInputTts.h"
 #import "NuiSdkUtils.h"
-
+#import "AudioController.h"
 
 #import <AudioToolbox/AudioToolbox.h>
 #include <sys/time.h>
@@ -639,7 +639,7 @@ static BOOL save_log = NO;
         if ([config objectForKey:@"voice"]) {
             _ttsVoice = [config objectForKey:@"voice"];
         } else {
-            _ttsVoice = @"zhixiaoxia"; // 默认音色
+            _ttsVoice = @"xiaoyun"; // 统一使用xiaoyun音色
         }
         
         if ([config objectForKey:@"format"]) {
@@ -651,7 +651,7 @@ static BOOL save_log = NO;
         if ([config objectForKey:@"sampleRate"]) {
             _ttsSampleRate = [[config objectForKey:@"sampleRate"] integerValue];
         } else {
-            _ttsSampleRate = 16000; // 默认采样率
+            _ttsSampleRate = 24000; // 统一使用24000采样率
         }
         
         if ([config objectForKey:@"volume"]) {
@@ -672,9 +672,12 @@ static BOOL save_log = NO;
             _ttsPitchRate = 0; // 默认语调
         }
 
+        // 初始化TTS音频播放器
+        [self initTTSAudioPlayer];
+
         // 初始化TTS实例
         if (_ttsNui == NULL) {
-            _ttsNui = [NeoNui get_instance];
+            _ttsNui = [StreamInputTts get_instance];
             _ttsNui.delegate = self;
         }
 
@@ -683,15 +686,15 @@ static BOOL save_log = NO;
         NSString *parameters = [self genTTSParameters];
 
         // 初始化TTS SDK
-        int ret = [_ttsNui startStreamInputTts:ticket 
-                                      parameters:parameters 
-                                      session_id:@"" 
-                                        logLevel:NUI_LOG_LEVEL_DEBUG 
-                                        saveLog:save_log];
+        int ret = [_ttsNui startStreamInputTts:[ticket UTF8String]
+                                       parameters:[parameters UTF8String]
+                                        sessionId:[@"" UTF8String]
+                                         logLevel:NUI_LOG_LEVEL_DEBUG
+                                          saveLog:save_log];
 
-        if (ret == 0) {
+        if (ret == SUCCESS) {
             _isTTSInitialized = YES;
-            NSLog(@"TTS initialized successfully");
+            NSLog(@"TTS initialized successfully with voice: %@, sampleRate: %ld", _ttsVoice, (long)_ttsSampleRate);
             return YES;
         } else {
             NSLog(@"TTS initialization failed with code: %d", ret);
@@ -766,6 +769,10 @@ static BOOL save_log = NO;
         // 停止TTS
         [_ttsNui stopStreamInputTts];
         _isTTSRunning = NO;
+        
+        // 停止音频播放
+        [self stopTTSAudioPlayback];
+        
         NSLog(@"TTS stopped successfully");
     } @catch (NSException *exception) {
         NSLog(@"TTS stop exception: %@", exception.reason);
@@ -774,8 +781,19 @@ static BOOL save_log = NO;
 
 - (void)releaseTTS {
     @try {
+        // 停止音频播放
+        [self stopTTSAudioPlayback];
+        
+        // 释放音频控制器
+        if (_ttsAudioController) {
+            [_ttsAudioController cleanPlayerBuffer];
+            _ttsAudioController.delegate = nil;
+            _ttsAudioController = nil;
+        }
+        
         if (_ttsNui != NULL) {
-            [_ttsNui release];
+            [_ttsNui releaseStreamInputTts];
+            _ttsNui.delegate = nil;
             _ttsNui = NULL;
         }
         _isTTSInitialized = NO;
@@ -794,13 +812,21 @@ static BOOL save_log = NO;
     @try {
         // 获取认证信息
         NSMutableDictionary *ticketDict = [NSMutableDictionary dictionary];
-        [utils getTicket:ticketDict Type:get_token_from_server_for_online_features];
+        [_utils getTicket:ticketDict Type:get_token_from_server_for_online_features];
         
         if (![ticketDict objectForKey:@"token"]) {
             NSLog(@"Cannot get token!!!");
         }
         
         [ticketDict setObject:_mserviceurl ?: @"wss://nls-gateway.cn-shanghai.aliyuncs.com:443/ws/v1" forKey:@"url"];
+        [ticketDict setObject:@"empty_device_id" forKey:@"device_id"];
+        
+        // 添加关键参数
+        NSString *debug_path = [_utils createDir];
+        [ticketDict setObject:debug_path forKey:@"debug_path"];
+        [ticketDict setObject:[NSString stringWithFormat:@"%d", NUI_LOG_LEVEL_NONE] forKey:@"log_track_level"];
+        [ticketDict setObject:@(50 * 1024 * 1024) forKey:@"max_log_file_size"];
+        [ticketDict setObject:@"10000" forKey:@"complete_waiting_ms"];
         
         ticket = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:ticketDict options:0 error:nil] encoding:NSUTF8StringEncoding];
     } @catch (NSException *exception) {
@@ -816,12 +842,16 @@ static BOOL save_log = NO;
     @try {
         NSMutableDictionary *dict = [NSMutableDictionary dictionary];
         [dict setObject:@YES forKey:@"enable_subtitle"];
-        [dict setObject:_ttsVoice ?: @"zhixiaoxia" forKey:@"voice"];
+        [dict setObject:_ttsVoice ?: @"xiaoyun" forKey:@"voice"];
         [dict setObject:_ttsFormat ?: @"pcm" forKey:@"format"];
-        [dict setObject:@(_ttsSampleRate > 0 ? _ttsSampleRate : 16000) forKey:@"sample_rate"];
+        [dict setObject:@(_ttsSampleRate > 0 ? _ttsSampleRate : 24000) forKey:@"sample_rate"];
         [dict setObject:@(_ttsVolume > 0 ? _ttsVolume : 50) forKey:@"volume"];
         [dict setObject:@(_ttsSpeechRate != 0 ? _ttsSpeechRate : 0) forKey:@"speech_rate"];
         [dict setObject:@(_ttsPitchRate != 0 ? _ttsPitchRate : 0) forKey:@"pitch_rate"];
+        
+        // 添加音频解码器配置
+        BOOL enableDecoder = [_ttsFormat isEqualToString:@"mp3"] || [_ttsFormat isEqualToString:@"opus"];
+        [dict setObject:@(enableDecoder) forKey:@"enable_audio_decoder"];
         
         params = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:dict options:0 error:nil] encoding:NSUTF8StringEncoding];
     } @catch (NSException *exception) {
@@ -834,25 +864,59 @@ static BOOL save_log = NO;
 
 #pragma mark - TTS Callback Methods
 
-- (void)handleTTSEvent:(StreamInputTtsEvent)event 
-               taskId:(NSString *)taskId 
-           sessionId:(NSString *)sessionId 
-             retCode:(int)retCode 
-            errorMsg:(NSString *)errorMsg 
-           timestamp:(NSString *)timestamp 
-        allResponse:(NSString *)allResponse {
-    NSLog(@"TTS event: %ld, task_id: %@, ret_code: %d", (long)event, taskId, retCode);
+- (void)onStreamInputTtsEventCallback:(StreamInputTtsCallbackEvent)event
+                               taskId:(char*)taskid sessionId:(char*)sessionId
+                             ret_code:(int)ret_code error_msg:(char*)error_msg
+                            timestamp:(char*)timestamp all_response:(char*)all_response {
+    NSLog(@"TTS event: %d, task_id: %s, ret_code: %d", event, taskid, ret_code);
     
+    // 处理TTS事件，管理播放状态
+    switch (event) {
+        case TTS_EVENT_SYNTHESIS_STARTED:
+            NSLog(@"TTS synthesis started");
+            // 重置完成标志
+            _isTTSFinishSend = NO;
+            // 启动播放器
+            if (_ttsAudioController) {
+                [_ttsAudioController startPlayer];
+                _isTTSPlaying = YES;
+            }
+            break;
+            
+        case TTS_EVENT_SYNTHESIS_COMPLETE:
+            NSLog(@"TTS synthesis completed");
+            // 设置完成标志并drain
+            _isTTSFinishSend = YES;
+            if (_ttsAudioController) {
+                [_ttsAudioController drain];
+            }
+            break;
+            
+        case TTS_EVENT_TASK_FAILED:
+            NSLog(@"TTS task failed: %s", error_msg);
+            // 停止播放
+            if (_ttsAudioController) {
+                [_ttsAudioController drain];
+                [_ttsAudioController stopPlayer];
+            }
+            _isTTSPlaying = NO;
+            break;
+            
+        default:
+            break;
+    }
+    
+    // 发送事件给JS
     if (_ttsCallbackId) {
         NSDictionary *resultDict = @{
             @"type": @"tts_event",
-            @"event": [NSString stringWithFormat:@"%ld", (long)event],
-            @"taskId": taskId ?: @"",
-            @"sessionId": sessionId ?: @"",
-            @"retCode": @(retCode),
-            @"errorMsg": errorMsg ?: @"",
-            @"timestamp": timestamp ?: @"",
-            @"allResponse": allResponse ?: @""
+            @"event": [NSString stringWithFormat:@"%d", event],
+            @"taskId": taskid ? [NSString stringWithUTF8String:taskid] : @"",
+            @"sessionId": sessionId ? [NSString stringWithUTF8String:sessionId] : @"",
+            @"retCode": @(ret_code),
+            @"errorMsg": error_msg ? [NSString stringWithUTF8String:error_msg] : @"",
+            @"timestamp": timestamp ? [NSString stringWithUTF8String:timestamp] : @"",
+            @"allResponse": all_response ? [NSString stringWithUTF8String:all_response] : @""
         };
         
         CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:resultDict];
@@ -862,20 +926,128 @@ static BOOL save_log = NO;
     }
 }
 
-- (void)handleTTSData:(NSData *)data {
-    NSLog(@"TTS data received, length: %lu", (unsigned long)data.length);
+- (void)onStreamInputTtsDataCallback:(char*)buffer len:(int)len {
+    NSLog(@"TTS data received, length: %d", len);
     
-    if (_ttsCallbackId) {
-        NSDictionary *resultDict = @{
-            @"type": @"tts_data",
-            @"data": [data base64EncodedStringWithOptions:0],
-            @"length": @(data.length)
-        };
+    if (buffer != NULL && len > 0 && _ttsAudioController != nil) {
+        NSData *data = [NSData dataWithBytes:buffer length:len];
         
-        CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:resultDict];
-        [pluginResult setKeepCallbackAsBool:YES];
+        // 播放音频数据
+        [self playTTSData:data];
         
-        [self.commandDelegate sendPluginResult:pluginResult callbackId:_ttsCallbackId];
+        // 同时发送给JS
+        if (_ttsCallbackId) {
+            NSDictionary *resultDict = @{
+                @"type": @"tts_data",
+                @"data": [data base64EncodedStringWithOptions:0],
+                @"length": @(len)
+            };
+            
+            CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:resultDict];
+            [pluginResult setKeepCallbackAsBool:YES];
+            
+            [self.commandDelegate sendPluginResult:pluginResult callbackId:_ttsCallbackId];
+        }
+    }
+}
+
+- (void)onStreamInputTtsLogTrackCallback:(NuiSdkLogLevel)level
+                             logMessage:(const char *)log {
+    NSLog(@"TTS log level:%d, message -> %s", level, log);
+}
+
+#pragma mark - AudioController Delegate
+
+- (void)playerDidStart {
+    NSLog(@"TTS player did start");
+}
+
+- (void)playerDrainDataFinish {
+    NSLog(@"TTS player drain data finish");
+    _isTTSPlaying = NO;
+}
+
+- (void)playerDidFinish {
+    NSLog(@"TTS player did finish");
+    _isTTSPlaying = NO;
+}
+
+- (void)playSoundLevel:(int)level {
+    // 可以在这里处理音量变化
+}
+
+- (void)playData:(unsigned char*)buffer Length:(int)len {
+    // 播放数据回调
+}
+
+#pragma mark - TTS Audio Player Methods
+
+- (void)initTTSAudioPlayer {
+    @try {
+        // 使用官方Demo的AudioController
+        if (_ttsAudioController == nil) {
+            _ttsAudioController = [[AudioController alloc] init:only_player];
+            _ttsAudioController.delegate = self;
+            [_ttsAudioController setPlayerSampleRate:_ttsSampleRate];
+        }
+        
+        _isTTSPlaying = NO;
+        _isTTSFinishSend = NO;
+        _shouldStopSendingTTS = NO;
+        _currentTTSSessionId = @"";
+        
+        NSLog(@"TTS audio controller initialized successfully");
+    } @catch (NSException *exception) {
+        NSLog(@"TTS audio controller initialization exception: %@", exception.reason);
+    }
+}
+
+- (void)playTTSData:(NSData *)data {
+    @try {
+        if (!_ttsAudioController) {
+            NSLog(@"TTS audio controller not initialized");
+            return;
+        }
+        
+        // 如果音频数据为空，只启动播放器不播放
+        if (data.length == 0) {
+            if (!_isTTSPlaying) {
+                [_ttsAudioController startPlayer];
+                _isTTSPlaying = YES;
+                NSLog(@"TTS audio player started (empty data)");
+            }
+            return;
+        }
+        
+        // 写入音频数据到播放器
+        [_ttsAudioController write:(const char *)data.bytes Length:(int)data.length];
+        NSLog(@"TTS audio data written to controller, length: %lu", (unsigned long)data.length);
+        
+        // 如果播放器未播放，启动播放
+        if (!_isTTSPlaying) {
+            [_ttsAudioController startPlayer];
+            _isTTSPlaying = YES;
+            NSLog(@"TTS audio player started");
+        }
+    } @catch (NSException *exception) {
+        NSLog(@"TTS play data exception: %@", exception.reason);
+    }
+}
+
+- (void)stopTTSAudioPlayback {
+    @try {
+        _isTTSPlaying = NO;
+        _isTTSFinishSend = NO;
+        _shouldStopSendingTTS = YES;
+        
+        if (_ttsAudioController) {
+            [_ttsAudioController stopPlayer];
+            [_ttsAudioController cleanPlayerBuffer];
+        }
+        
+        NSLog(@"TTS audio playback stopped");
+    } @catch (NSException *exception) {
+        NSLog(@"Stop TTS audio playback exception: %@", exception.reason);
     }
 }
 
