@@ -20,12 +20,12 @@ static NSString *regionId = @"cn-shanghai";
 static NSString *version = @"2019-02-28";
 static NSString *signatureVersion = @"1.0";
 
-@interface TokenHttpRequest(){
+@interface AIPluginTokenHttpRequest(){
 
 }
 @end
 
-@implementation TokenHttpRequest
+@implementation AIPluginTokenHttpRequest
 
 NSString *dateTime = nil;
 

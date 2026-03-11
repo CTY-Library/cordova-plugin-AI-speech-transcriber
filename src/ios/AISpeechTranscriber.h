@@ -2,8 +2,10 @@
 #import <Cordova/CDV.h>
 #import <AVFoundation/AVFoundation.h>
 #define DEBUG_MODE
+#import "nuisdk.framework/Headers/NeoNui.h"
 #import "nuisdk.framework/Headers/StreamInputTts.h"
 #import "NuiSdkUtils.h"
+
 #import "AudioController.h"
 #import <AudioToolbox/AudioToolbox.h>
 #include <sys/time.h>
@@ -74,7 +76,7 @@ typedef NS_ENUM(NSInteger, AISpeechTranscriberState) {
 /**
  * AI语音转写核心类
  */
-@interface AISpeechTranscriber : CDVPlugin <ConvVoiceRecorderDelegate, StreamInputTtsDelegate>
+@interface AISpeechTranscriber : CDVPlugin <ConvVoiceRecorderDelegate, NeoNuiSdkDelegate, StreamInputTtsDelegate>
 
 // 阿里云SDK核心实例
 @property NeoNui *nui;
@@ -105,6 +107,13 @@ typedef NS_ENUM(NSInteger, AISpeechTranscriberState) {
 @property NSInteger ttsVolume;
 @property NSInteger ttsSpeechRate;
 @property NSInteger ttsPitchRate;
+
+// TTS认证配置
+@property NSString *ttsToken;
+@property NSString *ttsAccessKey;
+@property NSString *ttsAccessKeySecret;
+@property NSString *ttsStsToken;
+@property NSString *ttsServiceUrl;
 
 // TTS音频播放相关属性
 @property StreamInputTts *ttsNui;
@@ -171,11 +180,11 @@ typedef NS_ENUM(NSInteger, AISpeechTranscriberState) {
 - (BOOL)startTTSWithText:(NSString *)text;
 
 /**
- * 发送TTS文本（流式）
+ * 发送TTS文本（内部方法）
  * @param text 要合成的文本
  * @return 是否发送成功
  */
-- (BOOL)sendTTSText:(NSString *)text;
+- (BOOL)sendTTSTextInternal:(NSString *)text;
 
 /**
  * 停止语音合成

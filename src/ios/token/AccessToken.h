@@ -13,15 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * AccessToken.h
  * NlsSdk
  * Created by Songsong Shao on 2018/10/29.
- * Copyright © 2018年 Alibaba idst. All rights reserved.
+ * Copyright 2018年 Alibaba idst. All rights reserved.
  */
 
 #import <Foundation/Foundation.h>
-
-@interface AccessToken : NSObject
+/**
+ * 访问令牌类（重命名避免冲突）
+ */
+@interface AIPluginAccessToken : NSObject
 @property(nonatomic) NSString *token;
 @property(nonatomic) long expireTime;
 

@@ -1,13 +1,15 @@
 #import <Cordova/CDV.h>
 #import <Foundation/Foundation.h>
 #define DEBUG_MODE
+#import "nuisdk.framework/Headers/NeoNui.h"
 #import "nuisdk.framework/Headers/StreamInputTts.h"
 #import "NuiSdkUtils.h"
-#import "AudioController.h"
 
 #import <AudioToolbox/AudioToolbox.h>
 #include <sys/time.h>
 #include <time.h>
+
+#import "AudioController.h"
 
 
 #import "AISpeechTranscriber.h"
@@ -143,6 +145,20 @@ static BOOL save_log = NO;
     NSDictionary *config = command.arguments[0];
     
     @try {
+        // 解析配置参数 - 与init方法保持一致
+        NSString *token = [config objectForKey:@"token"];
+        NSString *accessKey = [config objectForKey:@"accessKey"];
+        NSString *accessKeySecret = [config objectForKey:@"accessKeySecret"];
+        NSString *stsToken = [config objectForKey:@"stsToken"];
+        NSString *serviceUrl = [config objectForKey:@"serviceUrl"];
+        
+        // 保存TTS认证配置
+        _ttsToken = token;
+        _ttsAccessKey = accessKey;
+        _ttsAccessKeySecret = accessKeySecret;
+        _ttsStsToken = stsToken;
+        _ttsServiceUrl = serviceUrl ?: _mserviceurl;
+        
         BOOL success = [self initTTSWithConfig:config];
         if (success) {
             pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"TTS初始化成功"];
@@ -161,6 +177,13 @@ static BOOL save_log = NO;
     NSString *text = command.arguments[0];
     
     @try {
+        // 验证文本参数
+        if (!text || [text length] == 0) {
+            pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"TTS文本不能为空"];
+            [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+            return;
+        }
+        
         BOOL success = [self startTTSWithText:text];
         if (success) {
             pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"TTS启动成功"];
@@ -179,7 +202,14 @@ static BOOL save_log = NO;
     NSString *text = command.arguments[0];
     
     @try {
-        BOOL success = [self sendTTSText:text];
+        // 验证文本参数
+        if (!text || [text length] == 0) {
+            pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"TTS文本不能为空"];
+            [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+            return;
+        }
+        
+        BOOL success = [self sendTTSTextInternal:text];
         if (success) {
             pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"TTS文本发送成功"];
         } else {
@@ -692,7 +722,7 @@ static BOOL save_log = NO;
                                          logLevel:NUI_LOG_LEVEL_DEBUG
                                           saveLog:save_log];
 
-        if (ret == SUCCESS) {
+        if (ret == 0) {
             _isTTSInitialized = YES;
             NSLog(@"TTS initialized successfully with voice: %@, sampleRate: %ld", _ttsVoice, (long)_ttsSampleRate);
             return YES;
@@ -721,9 +751,18 @@ static BOOL save_log = NO;
         _isTTSRunning = YES;
 
         // 发送文本进行语音合成
-        int ret = [_ttsNui sendStreamInputTts:text];
+        int ret = [_ttsNui sendStreamInputTts:[text UTF8String]];
         if (ret == 0) {
             NSLog(@"TTS text sent successfully: %@", text);
+            
+            // 发送完成后调用stop接口，表示发送结束（与Android保持一致）
+            int stopRet = [_ttsNui stopStreamInputTts];
+            if (stopRet == 0) {
+                NSLog(@"TTS stop interface called successfully");
+            } else {
+                NSLog(@"TTS stop interface failed with code: %d", stopRet);
+            }
+            
             return YES;
         } else {
             NSLog(@"TTS text send failed with code: %d", ret);
@@ -737,24 +776,66 @@ static BOOL save_log = NO;
     }
 }
 
-- (BOOL)sendTTSText:(NSString *)text {
+- (BOOL)sendTTSTextInternal:(NSString *)text {
     @try {
-        if (!_isTTSInitialized || !_isTTSRunning) {
-            NSLog(@"TTS not initialized or not running");
+        if (!_isTTSInitialized) {
+            NSLog(@"TTS not initialized");
             return NO;
         }
 
-        // 发送文本
-        int ret = [_ttsNui sendStreamInputTts:text];
+        // 检查TTS实例状态，如果已完成或未运行，需要重新启动
+        if (!_isTTSRunning || _isTTSFinishSend) {
+            NSLog(@"TTS instance not running or completed, restarting TTS service");
+            
+            // 强制清理之前的状态
+            if (_ttsNui != NULL) {
+                NSLog(@"Cleaning up old TTS instance state");
+                [_ttsNui stopStreamInputTts];
+            }
+            [self stopTTSAudioPlayback]; // 清理音频播放状态
+            
+            // 重新生成参数并启动TTS实例
+            NSString *ticket = [self genTTSTicket];
+            NSString *parameters = [self genTTSParameters];
+            
+            int startRet = [_ttsNui startStreamInputTts:[ticket UTF8String]
+                                           parameters:[parameters UTF8String]
+                                            sessionId:[@"" UTF8String]
+                                             logLevel:NUI_LOG_LEVEL_DEBUG
+                                              saveLog:save_log];
+            
+            if (startRet != 0) {
+                NSLog(@"TTS instance restart failed with code: %d", startRet);
+                return NO;
+            }
+            
+            NSLog(@"TTS instance restarted successfully");
+        }
+
+        _isTTSRunning = YES;
+
+        // 发送文本进行语音合成
+        int ret = [_ttsNui sendStreamInputTts:[text UTF8String]];
         if (ret == 0) {
             NSLog(@"TTS text sent successfully: %@", text);
+            
+            // 发送完成后立即调用stop接口，表示发送结束
+            int stopRet = [_ttsNui stopStreamInputTts];
+            if (stopRet == 0) {
+                NSLog(@"TTS stop interface called successfully");
+            } else {
+                NSLog(@"TTS stop interface failed with code: %d", stopRet);
+            }
+            
             return YES;
         } else {
             NSLog(@"TTS text send failed with code: %d", ret);
+            _isTTSRunning = NO;
             return NO;
         }
     } @catch (NSException *exception) {
         NSLog(@"TTS send text exception: %@", exception.reason);
+        _isTTSRunning = NO;
         return NO;
     }
 }
@@ -810,23 +891,30 @@ static BOOL save_log = NO;
 - (NSString *)genTTSTicket {
     NSString *ticket = @"";
     @try {
-        // 获取认证信息
+        // 使用从JS获取的认证信息
         NSMutableDictionary *ticketDict = [NSMutableDictionary dictionary];
-        [_utils getTicket:ticketDict Type:get_token_from_server_for_online_features];
         
-        if (![ticketDict objectForKey:@"token"]) {
-            NSLog(@"Cannot get token!!!");
+        // 设置认证信息 - 与init方法保持一致
+        if (_ttsToken) {
+            [ticketDict setObject:_ttsToken forKey:@"token"];
         }
         
-        [ticketDict setObject:_mserviceurl ?: @"wss://nls-gateway.cn-shanghai.aliyuncs.com:443/ws/v1" forKey:@"url"];
-        [ticketDict setObject:@"empty_device_id" forKey:@"device_id"];
+        // 确保appkey存在 - 使用全局配置的appkey
+        NSString *appKey = _ttsAccessKey ?: _mappkey;
+        if (appKey) {
+            [ticketDict setObject:appKey forKey:@"appkey"];
+        }
         
-        // 添加关键参数
-        NSString *debug_path = [_utils createDir];
-        [ticketDict setObject:debug_path forKey:@"debug_path"];
-        [ticketDict setObject:[NSString stringWithFormat:@"%d", NUI_LOG_LEVEL_NONE] forKey:@"log_track_level"];
-        [ticketDict setObject:@(50 * 1024 * 1024) forKey:@"max_log_file_size"];
-        [ticketDict setObject:@"10000" forKey:@"complete_waiting_ms"];
+        if (_ttsAccessKeySecret) {
+            [ticketDict setObject:_ttsAccessKeySecret forKey:@"accesskey"];
+        }
+        if (_ttsStsToken) {
+            [ticketDict setObject:_ttsStsToken forKey:@"sts_token"];
+        }
+        
+        // 设置服务URL
+        NSString *serviceUrl = _ttsServiceUrl ?: _mserviceurl ?: @"wss://nls-gateway.cn-shanghai.aliyuncs.com:443/ws/v1";
+        [ticketDict setObject:serviceUrl forKey:@"url"];
         
         ticket = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:ticketDict options:0 error:nil] encoding:NSUTF8StringEncoding];
     } @catch (NSException *exception) {
@@ -849,10 +937,6 @@ static BOOL save_log = NO;
         [dict setObject:@(_ttsSpeechRate != 0 ? _ttsSpeechRate : 0) forKey:@"speech_rate"];
         [dict setObject:@(_ttsPitchRate != 0 ? _ttsPitchRate : 0) forKey:@"pitch_rate"];
         
-        // 添加音频解码器配置
-        BOOL enableDecoder = [_ttsFormat isEqualToString:@"mp3"] || [_ttsFormat isEqualToString:@"opus"];
-        [dict setObject:@(enableDecoder) forKey:@"enable_audio_decoder"];
-        
         params = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:dict options:0 error:nil] encoding:NSUTF8StringEncoding];
     } @catch (NSException *exception) {
         NSLog(@"Generate TTS parameters exception: %@", exception.reason);
@@ -862,7 +946,7 @@ static BOOL save_log = NO;
     return params;
 }
 
-#pragma mark - TTS Callback Methods
+#pragma mark - StreamInputTtsDelegate
 
 - (void)onStreamInputTtsEventCallback:(StreamInputTtsCallbackEvent)event
                                taskId:(char*)taskid sessionId:(char*)sessionId
@@ -874,9 +958,7 @@ static BOOL save_log = NO;
     switch (event) {
         case TTS_EVENT_SYNTHESIS_STARTED:
             NSLog(@"TTS synthesis started");
-            // 重置完成标志
             _isTTSFinishSend = NO;
-            // 启动播放器
             if (_ttsAudioController) {
                 [_ttsAudioController startPlayer];
                 _isTTSPlaying = YES;
@@ -885,7 +967,6 @@ static BOOL save_log = NO;
             
         case TTS_EVENT_SYNTHESIS_COMPLETE:
             NSLog(@"TTS synthesis completed");
-            // 设置完成标志并drain
             _isTTSFinishSend = YES;
             if (_ttsAudioController) {
                 [_ttsAudioController drain];
@@ -894,7 +975,6 @@ static BOOL save_log = NO;
             
         case TTS_EVENT_TASK_FAILED:
             NSLog(@"TTS task failed: %s", error_msg);
-            // 停止播放
             if (_ttsAudioController) {
                 [_ttsAudioController drain];
                 [_ttsAudioController stopPlayer];
@@ -970,6 +1050,11 @@ static BOOL save_log = NO;
 - (void)playerDidFinish {
     NSLog(@"TTS player did finish");
     _isTTSPlaying = NO;
+    
+    // 播放完毕后自动重置状态，为下一次做准备
+    _isTTSRunning = NO;
+    _isTTSFinishSend = NO;
+    NSLog(@"TTS playback finished, state reset for next use");
 }
 
 - (void)playSoundLevel:(int)level {
@@ -1038,6 +1123,7 @@ static BOOL save_log = NO;
     @try {
         _isTTSPlaying = NO;
         _isTTSFinishSend = NO;
+        _isTTSRunning = NO; // 重置运行状态
         _shouldStopSendingTTS = YES;
         
         if (_ttsAudioController) {
@@ -1045,7 +1131,7 @@ static BOOL save_log = NO;
             [_ttsAudioController cleanPlayerBuffer];
         }
         
-        NSLog(@"TTS audio playback stopped");
+        NSLog(@"TTS audio playback stopped and state reset");
     } @catch (NSException *exception) {
         NSLog(@"Stop TTS audio playback exception: %@", exception.reason);
     }

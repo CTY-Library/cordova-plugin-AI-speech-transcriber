@@ -9,13 +9,13 @@
 #import "AccessToken.h"
 #import "TokenHttpRequest.h"
 
-@interface AccessToken(){
-    TokenHttpRequest *httpRequest;
+@interface AIPluginAccessToken(){
+    AIPluginTokenHttpRequest *httpRequest;
 }
 
 @end
 
-@implementation AccessToken
+@implementation AIPluginAccessToken
 
 NSString *accesskeyId;
 NSString *accessSecret;

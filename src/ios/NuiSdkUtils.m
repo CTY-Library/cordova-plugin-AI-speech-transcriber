@@ -296,7 +296,7 @@
 }
 
 -(NSString*)generateToken:(NSString*)accessKey withSecret:(NSString*)accessSecret withStsToken:(NSString*)stsToken {
-    AccessToken *accessToken = [[AccessToken alloc]initWithAccessKeyId:accessKey andAccessSecret:accessSecret andSecurityToken:stsToken];
+    AIPluginAccessToken *accessToken = [[AIPluginAccessToken alloc]initWithAccessKeyId:accessKey andAccessSecret:accessSecret andSecurityToken:stsToken];
     [accessToken apply];
     long expire_time = [accessToken expireTime];
     NSLog(@"Token expire time is %ld", expire_time);
