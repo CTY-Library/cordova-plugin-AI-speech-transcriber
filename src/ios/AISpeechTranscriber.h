@@ -208,6 +208,18 @@ typedef NS_ENUM(NSInteger, AISpeechTranscriberState) {
 - (void)checkMicrophonePermissionWithCompletion:(void (^)(BOOL granted))completion;
 
 /**
+ * 检查语音识别是否已初始化
+ * @return 是否已初始化
+ */
+- (BOOL)isInitialized;
+
+/**
+ * 检查TTS是否已初始化
+ * @return 是否已初始化
+ */
+- (BOOL)isTTSInitialized;
+
+/**
  * 销毁资源
  */
 - (void)destroy;

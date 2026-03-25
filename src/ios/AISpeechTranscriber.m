@@ -222,6 +222,36 @@ static BOOL save_log = NO;
     [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
 }
 
+- (void)isInitialized:(CDVInvokedUrlCommand *)command {
+    CDVPluginResult *pluginResult = nil;
+    
+    @try {
+        BOOL initialized = [self isInitialized];
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsBool:initialized];
+        NSLog(@"语音识别状态检查: %@", initialized ? @"已初始化" : @"未初始化");
+    } @catch (NSException *exception) {
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:[NSString stringWithFormat:@"检查语音识别状态异常：%@", exception.reason]];
+        NSLog(@"语音识别状态检查异常: %@", exception.reason);
+    }
+    
+    [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+}
+
+- (void)isTTSInitialized:(CDVInvokedUrlCommand *)command {
+    CDVPluginResult *pluginResult = nil;
+    
+    @try {
+        BOOL initialized = [self isTTSInitialized];
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsBool:initialized];
+        NSLog(@"TTS状态检查: %@", initialized ? @"已初始化" : @"未初始化");
+    } @catch (NSException *exception) {
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:[NSString stringWithFormat:@"检查TTS状态异常：%@", exception.reason]];
+        NSLog(@"TTS状态检查异常: %@", exception.reason);
+    }
+    
+    [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+}
+
 - (void)stopTTS:(CDVInvokedUrlCommand *)command {
     CDVPluginResult *pluginResult = nil;
     
@@ -1134,6 +1164,30 @@ static BOOL save_log = NO;
         NSLog(@"TTS audio playback stopped and state reset");
     } @catch (NSException *exception) {
         NSLog(@"Stop TTS audio playback exception: %@", exception.reason);
+    }
+}
+
+#pragma mark - Status Check Methods
+
+- (BOOL)isInitialized {
+    @try {
+        BOOL initialized = (_nui != NULL);
+        NSLog(@"语音识别状态检查: %@", initialized ? @"已初始化" : @"未初始化");
+        return initialized;
+    } @catch (NSException *exception) {
+        NSLog(@"检查语音识别状态异常: %@", exception.reason);
+        return NO;
+    }
+}
+
+- (BOOL)isTTSInitialized {
+    @try {
+        BOOL initialized = _isTTSInitialized && (_ttsNui != NULL);
+        NSLog(@"TTS状态检查: %@", initialized ? @"已初始化" : @"未初始化");
+        return initialized;
+    } @catch (NSException *exception) {
+        NSLog(@"检查TTS状态异常: %@", exception.reason);
+        return NO;
     }
 }
 

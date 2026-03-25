@@ -164,6 +164,12 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                 case "releaseTTS":
                     releaseTTSResources(callbackContext);
                     return true;
+                case "isInitialized":
+                    isInitialized(callbackContext);
+                    return true;
+                case "isTTSInitialized":
+                    isTTSInitialized(callbackContext);
+                    return true;
                 default:
                     callbackContext.error("不支持的操作：" + action);
                     return false;
@@ -327,12 +333,6 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
 
                 // 释放音频资源
                 releaseAudioRecorder();
-
-                // 停止异步线程
-                if (workerThread != null) {
-                    workerThread.quit();
-                    workerThread = null;
-                }
 
                 isSdkInitialized = false;
                 callbackContext.success("所有资源已释放");
@@ -1343,6 +1343,46 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
     @Override
     public void onStreamInputTtsLogTrackCallback(Constants.LogLevel level, String log) {
         Log.i(TAG, "TTS Log Track - Level: " + level + ", Message: " + log);
+    }
+
+    // ====================== 状态检查函数 ======================
+
+    /**
+     * 检查语音识别是否已初始化
+     */
+    private void isInitialized(CallbackContext callbackContext) {
+        try {
+            boolean initialized = isSdkInitialized && (nui_instance != null);
+            if (initialized) {
+                callbackContext.success("true");
+                Log.i(TAG, "语音识别已初始化");
+            } else {
+                callbackContext.success("false");
+                Log.i(TAG, "语音识别未初始化");
+            }
+        } catch (Exception e) {
+            callbackContext.error("检查语音识别初始化状态失败：" + e.getMessage());
+            Log.e(TAG, "检查语音识别初始化状态异常", e);
+        }
+    }
+
+    /**
+     * 检查TTS是否已初始化
+     */
+    private void isTTSInitialized(CallbackContext callbackContext) {
+        try {
+            boolean initialized = isTTSInitialized && (tts_instance != null);
+            if (initialized) {
+                callbackContext.success("true");
+                Log.i(TAG, "TTS已初始化");
+            } else {
+                callbackContext.success("false");
+                Log.i(TAG, "TTS未初始化");
+            }
+        } catch (Exception e) {
+            callbackContext.error("检查TTS初始化状态失败：" + e.getMessage());
+            Log.e(TAG, "检查TTS初始化状态异常", e);
+        }
     }
 
 }

@@ -141,6 +141,42 @@ var AISpeechTranscriber = {
      */
     releaseTTS: function (success, error) {
         exec(success, error, 'AISpeechTranscriber', 'releaseTTS', []);
+    },
+
+    /**
+     * 检查语音识别是否已初始化
+     * @param {Function} success - 成功回调，参数为boolean值
+     * @param {Function} error - 失败回调
+     * @example
+     * AISpeechTranscriber.isInitialized(function(isInit) {
+     *     if (isInit) {
+     *         console.log("语音识别已初始化");
+     *         AISpeechTranscriber.startTranscribe(success, error);
+     *     } else {
+     *         console.log("语音识别未初始化，请先调用init方法");
+     *     }
+     * }, error);
+     */
+    isInitialized: function (success, error) {
+        exec(success, error, 'AISpeechTranscriber', 'isInitialized', []);
+    },
+
+    /**
+     * 检查TTS是否已初始化
+     * @param {Function} success - 成功回调，参数为boolean值
+     * @param {Function} error - 失败回调
+     * @example
+     * AISpeechTranscriber.isTTSInitialized(function(isInit) {
+     *     if (isInit) {
+     *         console.log("TTS已初始化");
+     *         AISpeechTranscriber.sendTTSText("你好世界", success, error);
+     *     } else {
+     *         console.log("TTS未初始化，请先调用initTTS方法");
+     *     }
+     * }, error);
+     */
+    isTTSInitialized: function (success, error) {
+        exec(success, error, 'AISpeechTranscriber', 'isTTSInitialized', []);
     }
 };
 

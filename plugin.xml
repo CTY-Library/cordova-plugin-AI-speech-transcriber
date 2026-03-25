@@ -8,9 +8,6 @@
     <license>MIT</license>
     <keywords>cordova, speech, transcribe, aliyun, AI, TTS</keywords>
     <repo>https://github.com/CTY-Library/cordova-plugin-AI-speech-transcriber</repo>
-    <!-- Hooks -->
-    <hook type="after_plugin_install" src="scripts/ios-framework-embed-hook.js" />
-    <hook type="after_platform_add" src="scripts/ios-framework-embed-hook.js" />
     <!-- 插件配置参数 -->  
     <preference name="SERVICEURL"/>
     <preference name="APPKEY"/>

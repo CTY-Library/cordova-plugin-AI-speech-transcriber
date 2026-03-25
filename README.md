@@ -356,6 +356,49 @@ AISpeechTranscriber.startTTS("测试语音合成", (result) => {
         });
 
     }
+
+    IS_ASR(){
+       AISpeechTranscriber.isInitialized(            
+            (e : any) => {
+                alert(JSON.stringify(e));//成功 
+
+            }, (e : any) => {
+                alert(JSON.stringify(e))//失败
+            });
+
+    }
+
+    IS_TTS(){
+     AISpeechTranscriber.isTTSInitialized(            
+        (e : any) => {
+            alert(JSON.stringify(e));//成功 
+
+        }, (e : any) => {
+            alert(JSON.stringify(e))//失败
+        });
+    }
+
+    //释放语音合成
+    releaseTTS(){
+     AISpeechTranscriber.releaseTTS(            
+        (e : any) => {
+            alert(JSON.stringify(e));//成功 
+
+        }, (e : any) => {
+            alert(JSON.stringify(e))//失败
+        });
+    }
+  
+    //释放语音识别
+    release(){
+      AISpeechTranscriber.release(            
+        (e : any) => {
+            alert(JSON.stringify(e));//成功 
+
+        }, (e : any) => {
+            alert(JSON.stringify(e))//失败
+        });
+    }
 ```
 
 ## 错误码说明

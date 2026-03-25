@@ -27,7 +27,7 @@ NSString *securityToken;
         accessSecret = akSecret;
         securityToken = stsToken;
     }
-    httpRequest = [[TokenHttpRequest alloc]init];
+    // httpRequest = [[TokenHttpRequest alloc]init];
     return self;
 }
 
