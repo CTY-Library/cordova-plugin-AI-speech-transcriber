@@ -125,6 +125,10 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
         try {
             switch (action) {
                 case "init":
+                    if (isSdkInitialized) {
+                        callbackContext.error("语音识别已经初始化，不需要重复初始化");
+                        return true;
+                    }
                     initSDK(args.getJSONObject(0), callbackContext);
                     return true;
                 case "startTranscribe":
@@ -200,7 +204,6 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
         ApplicationInfo appInfo =  context.getPackageManager().getApplicationInfo(context.getPackageName(),
                 PackageManager.GET_META_DATA);
 
-
         g_token = config.getString("token");// "4e89df9758a145a18cd37dc34906418e";
         g_appkey = appInfo.metaData.getString("com.plugin.ai.speech.APPKEY");
         g_url =  appInfo.metaData.getString("com.plugin.ai.speech.SERVICEURL", serviceUrl);// "wss://nls-gateway.cn-shanghai.aliyuncs.com:443/ws/v1";
@@ -243,6 +246,9 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
         Log.i(TAG, "result = " + ret);
         if (ret == Constants.NuiResultCode.SUCCESS) {
             isSdkInitialized = true;
+            callbackContext.success("语音识别初始化成功");
+        }else {
+            callbackContext.error("语音识别初始化失败");
         }
 
     }
@@ -328,7 +334,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                 // 释放 SDK
                 if (nui_instance != null) {
                     nui_instance.release();
-                    nui_instance = null;
+                    //nui_instance = null;
                 }
 
                 // 释放音频资源

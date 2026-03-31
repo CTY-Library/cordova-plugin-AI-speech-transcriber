@@ -123,18 +123,9 @@ AISpeechTranscriber.initTTS(
     });
 ```
 
-#### 开始语音合成
-```javascript
-AISpeechTranscriber.startTTS("你好，欢迎使用语音合成功能",            
-    (e : any) => {
-        // 成功 - 开始接收音频数据
-        console.log("TTS启动成功");
-    }, (e : any) => {
-        alert(JSON.stringify(e)) // 失败
-    });
-```
+ 
 
-#### 流式发送文本（可选）
+#### 流式发送文本 
 ```javascript
 AISpeechTranscriber.sendTTSText("这是第二段要合成的文本",            
     (e : any) => {
@@ -238,34 +229,7 @@ class VoiceAssistant {
         this.isTranscribing = false;
     }
 
-    // 语音合成
-    speak(text) {
-        if (this.isTTSSpeaking) return;
-        
-        AISpeechTranscriber.startTTS(text,
-            (result) => {
-                console.log("语音合成开始");
-            },
-            (error) => {
-                console.error("语音合成失败:", error);
-            }
-        );
-    }
-
-    // 处理语音结果
-    handleSpeechResult(text) {
-        // 这里可以实现语音命令识别
-        if (text.includes("你好")) {
-            this.speak("你好，我是语音助手");
-        } else if (text.includes("天气")) {
-            this.speak("今天天气晴朗，温度25度");
-        }
-    }
-}
-
-// 使用示例
-const voiceAssistant = new VoiceAssistant();
-voiceAssistant.initialize();
+ 
 ```
 
 ## 事件回调处理
@@ -299,25 +263,7 @@ AISpeechTranscriber.startTranscribe((result) => {
 
 ### 语音合成事件
 ```javascript
-// 在TTS回调中处理事件
-AISpeechTranscriber.startTTS("测试语音合成", (result) => {
-    const data = JSON.parse(result.message);
-    
-    switch(data.type) {
-        case 'tts_event':
-            console.log("TTS事件:", data.event);
-            if (data.event === "STREAM_INPUT_TTS_EVENT_SYNTHESIS_COMPLETE") {
-                console.log("语音合成完成");
-            }
-            break;
-        case 'tts_data':
-            console.log("音频数据:", data.length, "bytes");
-            // 这里可以处理音频数据，如播放或保存
-            break;
-    }
-}, (error) => {
-    console.error("TTS失败:", error);
-});
+ 
 
 
  ailiyuTTS_init(){
