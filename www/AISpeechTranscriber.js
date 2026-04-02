@@ -76,15 +76,7 @@ var AISpeechTranscriber = {
         exec(success, error, 'AISpeechTranscriber', 'initTTS', [config]);
     },
 
-    /**
-     * 开始语音合成
-     * @param {string} text - 要合成的文本
-     * @param {Function} success - 成功回调
-     * @param {Function} error - 失败回调
-     */
-    startTTS: function (text, success, error) {
-        exec(success, error, 'AISpeechTranscriber', 'startTTS', [text]);
-    },
+ 
 
     /**
      * 发送TTS文本（主要方法，自动启动和停止）
