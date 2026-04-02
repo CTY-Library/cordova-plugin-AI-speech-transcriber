@@ -953,6 +953,50 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
             // 异步发送文本
             workerHandler.post(() -> {
                 try {
+                    // 检查当前是否正在播放，如果是则等待播放完成
+                    if (isPlaying) {
+                        Log.i(TAG, "当前正在播放音频，等待播放完成后再发送新文本");
+                        
+                        // 添加超时机制，避免无限等待
+                        int waitCount = 0;
+                        final int MAX_WAIT_COUNT = 150; // 15秒超时 (150 * 100ms)
+                        
+                        while (isPlaying && waitCount < MAX_WAIT_COUNT) {
+                            try {
+                                // 检查TTS合成是否已完成且音频队列为空
+                                if (isFinishSend && ttsAudioQueue.isEmpty()) {
+                                    // TTS合成已完成且队列为空，检查播放位置
+                                    if (audioTrack != null && audioTrack.getPlaybackHeadPosition() > 0) {
+                                        // 有音频播放过，等待播放真正完成
+                                        Log.d(TAG, "检测到音频正在播放，位置: " + audioTrack.getPlaybackHeadPosition());
+                                    } else {
+                                        // 没有音频数据播放过，直接结束
+                                        Log.i(TAG, "TTS合成完成但无音频数据播放");
+                                        break;
+                                    }
+                                } else if (!isFinishSend) {
+                                    // TTS合成还未完成，继续等待
+                                    Log.d(TAG, "TTS合成进行中，继续等待...");
+                                } else {
+                                    // 队列不为空，继续等待数据播放
+                                    Log.d(TAG, "音频队列不为空，继续等待...");
+                                }
+                                
+                                Thread.sleep(100);
+                                waitCount++;
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                break;
+                            }
+                        }
+                        
+                        if (waitCount >= MAX_WAIT_COUNT) {
+                            Log.w(TAG, "等待播放完成超时，强制继续");
+                        } else {
+                            Log.i(TAG, "当前播放已完成，开始发送新文本");
+                        }
+                    }
+                    
                     // 每次发送文本前都重新启动TTS实例，确保状态正确
                     Log.i(TAG, "重新启动TTS服务以确保状态正确");
 
@@ -962,7 +1006,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                             Log.i(TAG, "清理旧的TTS实例状态");
                             tts_instance.stopStreamInputTts();
                         }
-                        stopTTSPlayback(); // 清理音频播放状态
+                        // 不调用stopTTSPlayback()，因为播放已经自然结束
                     } catch (Exception e) {
                         Log.w(TAG, "清理TTS状态时出现异常，继续启动", e);
                     }
@@ -1246,11 +1290,11 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                         AudioTrack.MODE_STREAM
                 );
 
-                // 启动播放线程
-                startAudioPlayerThread();
-
                 Log.i(TAG, "AudioTrack已创建，采样率: " + 24000 + ", 缓冲区大小: " + bufferSize);
             }
+
+            // 启动播放线程（如果不在运行）
+            startAudioPlayerThread();
 
             // 将音频数据放入队列（只有非空数据才入队）
             if (data.length > 0) {
@@ -1277,11 +1321,80 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                     while (isPlaying) {
                         if (ttsAudioQueue.size() > 0) {
                             byte[] data = ttsAudioQueue.take();
-                            audioTrack.write(data, 0, data.length);
-                            Log.d(TAG, "音频数据已播放，长度: " + data.length);
+                            int written = audioTrack.write(data, 0, data.length);
+                            Log.d(TAG, "音频数据已写入AudioTrack，长度: " + data.length + ", 实际写入: " + written);
                         } else {
                             if (isFinishSend) {
-                                Log.i(TAG, "音频播放完成");
+                                // 检查是否有音频数据被播放过
+                                if (audioTrack.getPlaybackHeadPosition() == 0) {
+                                    Log.i(TAG, "没有音频数据播放，直接结束");
+                                    
+                                    // 播放完成后调用回调
+                                    if (ttsPlayCompleteCallback != null) {
+                                        cordova.getActivity().runOnUiThread(() -> {
+                                            try {
+                                                org.json.JSONObject result = new org.json.JSONObject();
+                                                result.put("type", "tts_play_complete");
+                                                result.put("message", "TTS播放完成（无音频数据）");
+                                                
+                                                PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, result);
+                                                ttsPlayCompleteCallback.sendPluginResult(pluginResult);
+                                                Log.i(TAG, "TTS播放完成回调已发送（无音频数据）");
+                                            } catch (Exception e) {
+                                                Log.e(TAG, "发送TTS播放完成回调失败", e);
+                                            }
+                                        });
+                                    }
+                                    
+                                    // 播放完成后重置TTS运行状态，为下一次使用做准备
+                                    isTTSRunning = false;
+                                    Log.i(TAG, "TTS播放完成，已重置运行状态（无音频数据）");
+                                    break;
+                                }
+                                
+                                // 等待AudioTrack播放完所有缓冲区中的音频
+                                Log.i(TAG, "音频数据发送完成，等待AudioTrack播放完毕");
+                                
+                                // 方法1：检查AudioTrack播放状态，添加超时机制
+                                int lastPosition = 0;
+                                int unchangedCount = 0;
+                                int timeoutCount = 0;
+                                final int MAX_TIMEOUT = 50; // 5秒超时 (50 * 100ms)
+                                
+                                while (unchangedCount < 10 && timeoutCount < MAX_TIMEOUT) { // 连续10次播放位置不变认为播放完成
+                                    try {
+                                        int currentPosition = audioTrack.getPlaybackHeadPosition();
+                                        Log.d(TAG, "AudioTrack播放位置: " + currentPosition + ", 上次位置: " + lastPosition);
+                                        
+                                        if (currentPosition == lastPosition) {
+                                            unchangedCount++;
+                                        } else {
+                                            unchangedCount = 0;
+                                            lastPosition = currentPosition;
+                                        }
+                                        
+                                        timeoutCount++;
+                                        Thread.sleep(100); // 每100ms检查一次
+                                    } catch (InterruptedException e) {
+                                        Thread.currentThread().interrupt();
+                                        break;
+                                    }
+                                }
+                                
+                                // 检查是否超时
+                                if (timeoutCount >= MAX_TIMEOUT) {
+                                    Log.w(TAG, "等待播放完成超时，强制结束");
+                                }
+                                
+                                // 额外等待缓冲区清空
+                                try {
+                                    Thread.sleep(200); // 减少等待时间到200ms
+                                } catch (InterruptedException e) {
+                                    Thread.currentThread().interrupt();
+                                }
+                                
+                                Log.i(TAG, "音频播放完成，最终播放位置: " + audioTrack.getPlaybackHeadPosition());
+                                
                                 // 播放完成后调用回调
                                 if (ttsPlayCompleteCallback != null) {
                                     cordova.getActivity().runOnUiThread(() -> {
@@ -1309,6 +1422,11 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                     }
                 } catch (InterruptedException e) {
                     Log.e(TAG, "音频播放线程被中断", e);
+                } finally {
+                    // 线程结束时，将引用设置为null，以便下次可以创建新线程
+                    audioPlayerThread = null;
+                    isPlaying = false;
+                    Log.i(TAG, "音频播放线程已结束");
                 }
             });
             audioPlayerThread.start();
