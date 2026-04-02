@@ -817,6 +817,41 @@ static BOOL save_log = NO;
             return NO;
         }
 
+        // 检查当前是否正在播放，如果是则等待播放完成
+        if (_isTTSPlaying) {
+            NSLog(@"当前正在播放音频，等待播放完成后再发送新文本");
+            
+            // 添加超时机制，避免无限等待
+            int waitCount = 0;
+            const int MAX_WAIT_COUNT = 150; // 15秒超时 (150 * 0.1s)
+            
+            while (_isTTSPlaying && waitCount < MAX_WAIT_COUNT) {
+                // 检查TTS合成是否已完成
+                if (_isTTSFinishSend) {
+                    // TTS合成已完成，检查是否还在播放
+                    if (_ttsAudioController && [_ttsAudioController isPlaying]) {
+                        NSLog(@"检测到音频正在播放，继续等待...");
+                    } else {
+                        // 合成完成且不再播放，认为是真正的完成
+                        NSLog(@"TTS合成完成且音频播放结束");
+                        break;
+                    }
+                } else {
+                    // TTS合成还未完成，继续等待
+                    NSLog(@"TTS合成进行中，继续等待...");
+                }
+                
+                [NSThread sleepForTimeInterval:0.1];
+                waitCount++;
+            }
+            
+            if (waitCount >= MAX_WAIT_COUNT) {
+                NSLog(@"等待播放完成超时，强制继续");
+            } else {
+                NSLog(@"当前播放已完成，开始发送新文本");
+            }
+        }
+
         // 每次发送文本前都重新启动TTS实例，确保状态正确
         NSLog(@"Restarting TTS service to ensure correct state");
         
@@ -825,7 +860,7 @@ static BOOL save_log = NO;
             NSLog(@"Cleaning up old TTS instance state");
             [_ttsNui stopStreamInputTts];
         }
-        [self stopTTSAudioPlayback]; // 清理音频播放状态
+        // 不调用stopTTSAudioPlayback()，因为播放已经自然结束
         
         // 重新生成参数并启动TTS实例
         NSString *ticket = [self genTTSTicket];
@@ -1082,29 +1117,34 @@ static BOOL save_log = NO;
 
 - (void)playerDidFinish {
     NSLog(@"TTS player did finish");
-    _isTTSPlaying = NO;
     
-    // 播放完毕后自动重置状态，为下一次做准备
+    // 重置播放状态
+    _isTTSPlaying = NO;
     _isTTSRunning = NO;
     _isTTSFinishSend = NO;
     NSLog(@"TTS playback finished, state reset for next use");
     
-    // 发送播放完成回调给前端
-    if (_ttsPlayCompleteCallbackId) {
-        NSDictionary *resultDict = @{
-            @"type": @"tts_play_complete",
-            @"message": @"TTS播放完成"
-        };
+    // 等待一小段时间确保音频完全播放完毕
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        NSLog(@"TTS audio buffer cleared, sending completion callback");
         
-        CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:resultDict];
-        [pluginResult setKeepCallbackAsBool:NO]; // 播放完成后关闭回调通道
-        
-        [self.commandDelegate sendPluginResult:pluginResult callbackId:_ttsPlayCompleteCallbackId];
-        NSLog(@"TTS播放完成回调已发送");
-        
-        // 清理回调ID
-        _ttsPlayCompleteCallbackId = nil;
-    }
+        // 发送播放完成回调给前端
+        if (_ttsPlayCompleteCallbackId) {
+            NSDictionary *resultDict = @{
+                @"type": @"tts_play_complete",
+                @"message": @"TTS播放完成"
+            };
+            
+            CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:resultDict];
+            [pluginResult setKeepCallbackAsBool:NO]; // 播放完成后关闭回调通道
+            
+            [self.commandDelegate sendPluginResult:pluginResult callbackId:_ttsPlayCompleteCallbackId];
+            NSLog(@"TTS播放完成回调已发送");
+            
+            // 清理回调ID
+            _ttsPlayCompleteCallbackId = nil;
+        }
+    });
 }
 
 - (void)playSoundLevel:(int)level {
