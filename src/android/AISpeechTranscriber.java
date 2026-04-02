@@ -116,6 +116,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
     // Cordova 回调上下文
     private CallbackContext transcribeCallback;
     private CallbackContext ttsCallback;
+    private CallbackContext ttsPlayCompleteCallback;
 
     /**
      * Cordova 插件核心入口：处理 JS 调用的方法
@@ -160,6 +161,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                     }
                     return true;
                 case "sendTTSText":
+                    ttsPlayCompleteCallback = callbackContext; // 保存播放完成回调
                     sendTTSText(args.getString(0), callbackContext);
                     return true;
                 case "stopTTS":
@@ -951,42 +953,40 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
             // 异步发送文本
             workerHandler.post(() -> {
                 try {
-                    // 如果TTS实例未启动，先启动它
-                    if (!isTTSRunning) {
-                        Log.i(TAG, "TTS实例未启动，先启动TTS服务");
+                    // 每次发送文本前都重新启动TTS实例，确保状态正确
+                    Log.i(TAG, "重新启动TTS服务以确保状态正确");
 
-                        // 强制清理之前的状态
-                        try {
-                            if (tts_instance != null) {
-                                Log.i(TAG, "清理旧的TTS实例状态");
-                                tts_instance.stopStreamInputTts();
-                            }
-                            stopTTSPlayback(); // 清理音频播放状态
-                        } catch (Exception e) {
-                            Log.w(TAG, "清理TTS状态时出现异常，继续启动", e);
+                    // 强制清理之前的状态
+                    try {
+                        if (tts_instance != null) {
+                            Log.i(TAG, "清理旧的TTS实例状态");
+                            tts_instance.stopStreamInputTts();
                         }
-
-                        int startRet = tts_instance.startStreamInputTts(
-                                this, // 添加callback参数
-                                genTTSTicket(),
-                                genTTSParameters(),
-                                "",
-                                Constants.LogLevel.toInt(Constants.LogLevel.LOG_LEVEL_DEBUG),
-                                true
-                        );
-
-                        if (startRet != Constants.NuiResultCode.SUCCESS) {
-                            callbackContext.error("启动TTS服务失败，错误码：" + startRet);
-                            Log.e(TAG, "启动TTS服务失败，错误码：" + startRet);
-                            return;
-                        }
-
-                        isTTSRunning = true;
-                        Log.i(TAG, "TTS服务启动成功");
-
-                        // 等待一小段时间确保连接建立
-                        Thread.sleep(100);
+                        stopTTSPlayback(); // 清理音频播放状态
+                    } catch (Exception e) {
+                        Log.w(TAG, "清理TTS状态时出现异常，继续启动", e);
                     }
+
+                    int startRet = tts_instance.startStreamInputTts(
+                            this, // 添加callback参数
+                            genTTSTicket(),
+                            genTTSParameters(),
+                            "",
+                            Constants.LogLevel.toInt(Constants.LogLevel.LOG_LEVEL_DEBUG),
+                            true
+                    );
+
+                    if (startRet != Constants.NuiResultCode.SUCCESS) {
+                        callbackContext.error("启动TTS服务失败，错误码：" + startRet);
+                        Log.e(TAG, "启动TTS服务失败，错误码：" + startRet);
+                        return;
+                    }
+
+                    isTTSRunning = true;
+                    Log.i(TAG, "TTS服务重新启动成功");
+
+                    // 等待一小段时间确保连接建立
+                    Thread.sleep(200); // 增加等待时间
 
                     int ret = tts_instance.sendStreamInputTts(text);
                     if (ret == Constants.NuiResultCode.SUCCESS) {
@@ -1282,6 +1282,26 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                         } else {
                             if (isFinishSend) {
                                 Log.i(TAG, "音频播放完成");
+                                // 播放完成后调用回调
+                                if (ttsPlayCompleteCallback != null) {
+                                    cordova.getActivity().runOnUiThread(() -> {
+                                        try {
+                                            org.json.JSONObject result = new org.json.JSONObject();
+                                            result.put("type", "tts_play_complete");
+                                            result.put("message", "TTS播放完成");
+                                            
+                                            PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, result);
+                                            ttsPlayCompleteCallback.sendPluginResult(pluginResult);
+                                            Log.i(TAG, "TTS播放完成回调已发送");
+                                        } catch (Exception e) {
+                                            Log.e(TAG, "发送TTS播放完成回调失败", e);
+                                        }
+                                    });
+                                }
+                                
+                                // 播放完成后重置TTS运行状态，为下一次使用做准备
+                                isTTSRunning = false;
+                                Log.i(TAG, "TTS播放完成，已重置运行状态");
                                 break;
                             }
                             Thread.sleep(10);
@@ -1325,6 +1345,24 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
 
         // 清空音频队列
         ttsAudioQueue.clear();
+        
+        // 清理播放完成回调
+        if (ttsPlayCompleteCallback != null) {
+            cordova.getActivity().runOnUiThread(() -> {
+                try {
+                    org.json.JSONObject result = new org.json.JSONObject();
+                    result.put("type", "tts_play_stopped");
+                    result.put("message", "TTS播放已停止");
+                    
+                    PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, result);
+                    ttsPlayCompleteCallback.sendPluginResult(pluginResult);
+                    Log.i(TAG, "TTS播放停止回调已发送");
+                } catch (Exception e) {
+                    Log.e(TAG, "发送TTS播放停止回调失败", e);
+                }
+            });
+            ttsPlayCompleteCallback = null;
+        }
     }
 
     // ====================== INativeStreamInputTtsCallback 接口实现 ======================

@@ -98,11 +98,21 @@ var AISpeechTranscriber = {
      * 3. 播放音频
      * 4. 播放完毕后自动停止并重置状态
      * 5. 为下一次使用做好准备
+     * 6. 播放完成后调用success回调函数
+     * 
+     * 播放完成回调会返回包含type和message的对象：
+     * - type: "tts_play_complete" 表示播放完成
+     * - type: "tts_play_stopped" 表示播放被停止
+     * - message: 描述信息
      * 
      * @example
      * // 简单使用
-     * AISpeechTranscriber.sendTTSText("你好世界", function() {
-     *     console.log("播放完成，可以发送下一个文本");
+     * AISpeechTranscriber.sendTTSText("你好世界", function(result) {
+     *     if (result.type === "tts_play_complete") {
+     *         console.log("播放完成，可以发送下一个文本");
+     *     } else if (result.type === "tts_play_stopped") {
+     *         console.log("播放被停止");
+     *     }
      * }, function(error) {
      *     console.error("播放失败:", error);
      * });
@@ -111,9 +121,11 @@ var AISpeechTranscriber = {
      * function playTexts(texts, index) {
      *     if (index >= texts.length) return;
      *     
-     *     AISpeechTranscriber.sendTTSText(texts[index], function() {
-     *         console.log("播放完成: " + texts[index]);
-     *         playTexts(texts, index + 1); // 自动播放下一个
+     *     AISpeechTranscriber.sendTTSText(texts[index], function(result) {
+     *         if (result.type === "tts_play_complete") {
+     *             console.log("播放完成: " + texts[index]);
+     *             playTexts(texts, index + 1); // 自动播放下一个
+     *         }
      *     }, function(error) {
      *         console.error("播放失败:", error);
      *     });

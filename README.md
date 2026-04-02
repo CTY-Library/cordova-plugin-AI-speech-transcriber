@@ -15,6 +15,7 @@ AI语音转写和语音合成插件,基于阿里云的SDK (V2.7.1-039-20251125)
 - 可调节语速、语调、音量
 - 支持多种音频格式
 - 实时音频数据回调
+- **播放完成回调通知** - 播放结束后自动回调前端插件
 
 ## 参考链接
 
@@ -124,17 +125,7 @@ AISpeechTranscriber.initTTS(
 ```
 
  
-
-#### 流式发送文本 
-```javascript
-AISpeechTranscriber.sendTTSText("这是第二段要合成的文本",            
-    (e : any) => {
-        // 成功
-        console.log("TTS文本发送成功");
-    }, (e : any) => {
-        alert(JSON.stringify(e)) // 失败
-    });
-```
+ 
 
 #### 停止语音合成
 ```javascript

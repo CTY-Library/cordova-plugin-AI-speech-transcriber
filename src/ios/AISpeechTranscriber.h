@@ -101,6 +101,7 @@ typedef NS_ENUM(NSInteger, AISpeechTranscriberState) {
 @property BOOL isTTSInitialized;
 @property BOOL isTTSRunning;
 @property NSString *ttsCallbackId;
+@property NSString *ttsPlayCompleteCallbackId; // TTS播放完成回调ID
 @property NSString *ttsVoice;
 @property NSString *ttsFormat;
 @property NSInteger ttsSampleRate;
