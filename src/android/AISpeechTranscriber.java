@@ -110,6 +110,10 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
     private Thread audioPlayerThread;
     private boolean isFinishSend = false;
 
+    // TTS文本队列（用于顺序播放多个句子）
+    private LinkedBlockingQueue<String> ttsTextQueue = new LinkedBlockingQueue<>();
+    private boolean isTTSProcessingQueue = false;
+
     // 异步线程
     private HandlerThread workerThread;
     private Handler workerHandler;
@@ -941,7 +945,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
     }
 
     /**
-     * 发送TTS文本（流式）
+     * 发送TTS文本（流式）- 使用队列机制实现顺序播放
      */
     private void sendTTSText(String text, CallbackContext callbackContext) {
         try {
@@ -950,110 +954,19 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                 return;
             }
 
-            // 异步发送文本
-            workerHandler.post(() -> {
-                try {
-                    // 检查当前是否正在播放，如果是则等待播放完成
-                    if (isPlaying) {
-                        Log.i(TAG, "当前正在播放音频，等待播放完成后再发送新文本");
-                        
-                        // 添加超时机制，避免无限等待
-                        int waitCount = 0;
-                        final int MAX_WAIT_COUNT = 150; // 15秒超时 (150 * 100ms)
-                        
-                        while (isPlaying && waitCount < MAX_WAIT_COUNT) {
-                            try {
-                                // 检查TTS合成是否已完成且音频队列为空
-                                if (isFinishSend && ttsAudioQueue.isEmpty()) {
-                                    // TTS合成已完成且队列为空，检查播放位置
-                                    if (audioTrack != null && audioTrack.getPlaybackHeadPosition() > 0) {
-                                        // 有音频播放过，等待播放真正完成
-                                        Log.d(TAG, "检测到音频正在播放，位置: " + audioTrack.getPlaybackHeadPosition());
-                                    } else {
-                                        // 没有音频数据播放过，直接结束
-                                        Log.i(TAG, "TTS合成完成但无音频数据播放");
-                                        break;
-                                    }
-                                } else if (!isFinishSend) {
-                                    // TTS合成还未完成，继续等待
-                                    Log.d(TAG, "TTS合成进行中，继续等待...");
-                                } else {
-                                    // 队列不为空，继续等待数据播放
-                                    Log.d(TAG, "音频队列不为空，继续等待...");
-                                }
-                                
-                                Thread.sleep(100);
-                                waitCount++;
-                            } catch (InterruptedException e) {
-                                Thread.currentThread().interrupt();
-                                break;
-                            }
-                        }
-                        
-                        if (waitCount >= MAX_WAIT_COUNT) {
-                            Log.w(TAG, "等待播放完成超时，强制继续");
-                        } else {
-                            Log.i(TAG, "当前播放已完成，开始发送新文本");
-                        }
-                    }
-                    
-                    // 每次发送文本前都重新启动TTS实例，确保状态正确
-                    Log.i(TAG, "重新启动TTS服务以确保状态正确");
+            // 将文本加入队列
+            ttsTextQueue.offer(text);
+            Log.i(TAG, "TTS文本已加入队列，当前队列长度: " + ttsTextQueue.size());
 
-                    // 强制清理之前的状态
-                    try {
-                        if (tts_instance != null) {
-                            Log.i(TAG, "清理旧的TTS实例状态");
-                            tts_instance.stopStreamInputTts();
-                        }
-                        // 不调用stopTTSPlayback()，因为播放已经自然结束
-                    } catch (Exception e) {
-                        Log.w(TAG, "清理TTS状态时出现异常，继续启动", e);
-                    }
+            // 立即返回成功（排队成功）
+            callbackContext.success("TTS文本已加入播放队列");
 
-                    int startRet = tts_instance.startStreamInputTts(
-                            this, // 添加callback参数
-                            genTTSTicket(),
-                            genTTSParameters(),
-                            "",
-                            Constants.LogLevel.toInt(Constants.LogLevel.LOG_LEVEL_DEBUG),
-                            true
-                    );
-
-                    if (startRet != Constants.NuiResultCode.SUCCESS) {
-                        callbackContext.error("启动TTS服务失败，错误码：" + startRet);
-                        Log.e(TAG, "启动TTS服务失败，错误码：" + startRet);
-                        return;
-                    }
-
-                    isTTSRunning = true;
-                    Log.i(TAG, "TTS服务重新启动成功");
-
-                    // 等待一小段时间确保连接建立
-                    Thread.sleep(200); // 增加等待时间
-
-                    int ret = tts_instance.sendStreamInputTts(text);
-                    if (ret == Constants.NuiResultCode.SUCCESS) {
-                        callbackContext.success("TTS文本发送成功");
-                        Log.i(TAG, "TTS文本发送成功: " + text);
-
-                        // 发送完成后调用stop接口，表示发送结束
-                        int stopRet = tts_instance.stopStreamInputTts();
-                        if (stopRet == Constants.NuiResultCode.SUCCESS) {
-                            Log.i(TAG, "发送完成后停止接口调用成功");
-                        } else {
-                            Log.e(TAG, "发送完成后停止接口调用失败，错误码: " + stopRet);
-                        }
-                    } else {
-                        String errorMsg = "TTS文本发送失败，错误码：" + ret;
-                        callbackContext.error(errorMsg);
-                        Log.e(TAG, errorMsg);
-                    }
-                } catch (Exception e) {
-                    callbackContext.error("TTS文本发送异常：" + e.getMessage());
-                    Log.e(TAG, "TTS文本发送异常", e);
-                }
-            });
+            // 如果当前没有正在播放，开始处理队列
+            if (!isTTSProcessingQueue && !isPlaying) {
+                processTTSQueue();
+            } else {
+                Log.i(TAG, "TTS正在播放中，文本已加入队列等待播放");
+            }
         } catch (Exception e) {
             callbackContext.error("发送TTS文本失败：" + e.getMessage());
             Log.e(TAG, "发送TTS文本异常", e);
@@ -1061,24 +974,107 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
     }
 
     /**
+     * 处理TTS文本队列
+     */
+    private void processTTSQueue() {
+        workerHandler.post(() -> {
+            try {
+                // 检查队列是否为空
+                if (ttsTextQueue.isEmpty()) {
+                    Log.i(TAG, "TTS队列为空，停止处理");
+                    isTTSProcessingQueue = false;
+                    return;
+                }
+
+                // 标记正在处理队列
+                isTTSProcessingQueue = true;
+
+                // 取出队列中的第一条文本
+                String text = ttsTextQueue.take();
+                Log.i(TAG, "开始播放队列中的文本: " + text + "，剩余: " + ttsTextQueue.size());
+
+                // 重新启动TTS实例
+                int startRet = tts_instance.startStreamInputTts(
+                        this,
+                        genTTSTicket(),
+                        genTTSParameters(),
+                        "",
+                        Constants.LogLevel.toInt(Constants.LogLevel.LOG_LEVEL_DEBUG),
+                        true
+                );
+
+                if (startRet != Constants.NuiResultCode.SUCCESS) {
+                    Log.e(TAG, "启动TTS服务失败，错误码：" + startRet);
+                    isTTSProcessingQueue = false;
+                    // 尝试播放下一个
+                    processTTSQueue();
+                    return;
+                }
+
+                isTTSRunning = true;
+                Log.i(TAG, "TTS服务重新启动成功");
+
+                // 等待一小段时间确保连接建立
+                Thread.sleep(200);
+
+                // 发送文本进行语音合成
+                int ret = tts_instance.sendStreamInputTts(text);
+                if (ret == Constants.NuiResultCode.SUCCESS) {
+                    Log.i(TAG, "TTS文本发送成功: " + text);
+
+                    // 发送完成后调用stop接口，表示发送结束
+                    int stopRet = tts_instance.stopStreamInputTts();
+                    if (stopRet == Constants.NuiResultCode.SUCCESS) {
+                        Log.i(TAG, "发送完成后停止接口调用成功");
+                    } else {
+                        Log.e(TAG, "发送完成后停止接口调用失败，错误码: " + stopRet);
+                    }
+                } else {
+                    Log.e(TAG, "TTS文本发送失败，错误码：" + ret);
+                    isTTSRunning = false;
+                    // 尝试播放下一个
+                    processTTSQueue();
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "处理TTS队列异常", e);
+                isTTSProcessingQueue = false;
+            }
+        });
+    }
+
+    /**
      * 停止TTS
      */
     private void stopTTS(CallbackContext callbackContext) {
         try {
-            if (!isTTSInitialized || !isTTSRunning) {
-                callbackContext.error("TTS未初始化或未运行");
-                return;
-            }
+            Log.i(TAG, "stopTTS called - 开始立即停止TTS");
 
             // 异步停止TTS
             workerHandler.post(() -> {
                 try {
-                    tts_instance.stopStreamInputTts();
-                    isTTSRunning = false;
-                    // 停止音频播放
+                    // 清空文本队列
+                    if (ttsTextQueue != null) {
+                        ttsTextQueue.clear();
+                        Log.i(TAG, "TTS文本队列已清空");
+                    }
+                    isTTSProcessingQueue = false;
+
+                    // 立即停止TTS SDK（不管状态如何，强制停止）
+                    if (tts_instance != null) {
+                        int stopRet = tts_instance.stopStreamInputTts();
+                        Log.i(TAG, "TTS stopStreamInputTts result: " + stopRet);
+                    }
+
+                    // 立即停止音频播放（强制停止，不等待）
                     stopTTSPlayback();
-                    callbackContext.success("TTS停止成功");
-                    Log.i(TAG, "TTS停止成功");
+
+                    // 重置所有状态标志
+                    isTTSRunning = false;
+                    isPlaying = false;
+                    isFinishSend = false;
+
+                    callbackContext.success("TTS立即停止成功");
+                    Log.i(TAG, "TTS立即停止成功");
                 } catch (Exception e) {
                     callbackContext.error("停止TTS异常：" + e.getMessage());
                     Log.e(TAG, "停止TTS异常", e);
@@ -1095,19 +1091,42 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
      */
     private void releaseTTSResources(CallbackContext callbackContext) {
         try {
+            Log.i(TAG, "releaseTTSResources called - 开始释放TTS资源");
+
             // 异步释放TTS资源
             workerHandler.post(() -> {
                 try {
-                    // 停止音频播放
+                    // 清空文本队列
+                    if (ttsTextQueue != null) {
+                        ttsTextQueue.clear();
+                        Log.i(TAG, "TTS文本队列已清空");
+                    }
+                    isTTSProcessingQueue = false;
+
+                    // 首先立即停止TTS和音频播放
+                    if (tts_instance != null) {
+                        tts_instance.stopStreamInputTts();
+                    }
+
+                    // 立即停止音频播放并清空缓冲区
                     stopTTSPlayback();
 
+                    // 重置所有状态标志
+                    isTTSRunning = false;
+                    isPlaying = false;
+                    isFinishSend = false;
+
+                    // 释放TTS SDK实例
                     if (tts_instance != null) {
                         tts_instance.release();
                         tts_instance = null;
+                        Log.i(TAG, "TTS SDK实例已释放");
                     }
+
+                    // 重置初始化标志
                     isTTSInitialized = false;
-                    isTTSRunning = false;
                     ttsCallback = null;
+
                     callbackContext.success("TTS资源释放成功");
                     Log.i(TAG, "TTS资源释放完成");
                 } catch (Exception e) {
@@ -1328,7 +1347,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                                 // 检查是否有音频数据被播放过
                                 if (audioTrack.getPlaybackHeadPosition() == 0) {
                                     Log.i(TAG, "没有音频数据播放，直接结束");
-                                    
+
                                     // 播放完成后调用回调
                                     if (ttsPlayCompleteCallback != null) {
                                         cordova.getActivity().runOnUiThread(() -> {
@@ -1336,7 +1355,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                                                 org.json.JSONObject result = new org.json.JSONObject();
                                                 result.put("type", "tts_play_complete");
                                                 result.put("message", "TTS播放完成（无音频数据）");
-                                                
+
                                                 PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, result);
                                                 ttsPlayCompleteCallback.sendPluginResult(pluginResult);
                                                 Log.i(TAG, "TTS播放完成回调已发送（无音频数据）");
@@ -1345,56 +1364,66 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                                             }
                                         });
                                     }
-                                    
+
                                     // 播放完成后重置TTS运行状态，为下一次使用做准备
                                     isTTSRunning = false;
                                     Log.i(TAG, "TTS播放完成，已重置运行状态（无音频数据）");
+
+                                    // 检查队列中是否还有文本需要播放
+                                    if (!ttsTextQueue.isEmpty()) {
+                                        Log.i(TAG, "队列中还有 " + ttsTextQueue.size() + " 个文本等待播放，继续处理");
+                                        isTTSProcessingQueue = false;
+                                        processTTSQueue();
+                                    } else {
+                                        isTTSProcessingQueue = false;
+                                        Log.i(TAG, "TTS队列为空，停止处理");
+                                    }
                                     break;
                                 }
-                                
+
                                 // 等待AudioTrack播放完所有缓冲区中的音频
                                 Log.i(TAG, "音频数据发送完成，等待AudioTrack播放完毕");
-                                
+
                                 // 方法1：检查AudioTrack播放状态，添加超时机制
                                 int lastPosition = 0;
                                 int unchangedCount = 0;
                                 int timeoutCount = 0;
                                 final int MAX_TIMEOUT = 50; // 5秒超时 (50 * 100ms)
-                                
+
                                 while (unchangedCount < 10 && timeoutCount < MAX_TIMEOUT) { // 连续10次播放位置不变认为播放完成
                                     try {
                                         int currentPosition = audioTrack.getPlaybackHeadPosition();
                                         Log.d(TAG, "AudioTrack播放位置: " + currentPosition + ", 上次位置: " + lastPosition);
-                                        
+
                                         if (currentPosition == lastPosition) {
                                             unchangedCount++;
                                         } else {
                                             unchangedCount = 0;
                                             lastPosition = currentPosition;
                                         }
-                                        
+
                                         timeoutCount++;
-                                        Thread.sleep(100); // 每100ms检查一次
+                                        Thread.sleep(10); // 每100ms检查一次
                                     } catch (InterruptedException e) {
                                         Thread.currentThread().interrupt();
                                         break;
                                     }
                                 }
-                                
+
                                 // 检查是否超时
                                 if (timeoutCount >= MAX_TIMEOUT) {
                                     Log.w(TAG, "等待播放完成超时，强制结束");
                                 }
-                                
+
                                 // 额外等待缓冲区清空
-                                try {
-                                    Thread.sleep(200); // 减少等待时间到200ms
-                                } catch (InterruptedException e) {
-                                    Thread.currentThread().interrupt();
-                                }
-                                
+//                                try {
+//                                    Thread.sleep(20); // 减少等待时间到200ms
+//                                } catch (InterruptedException e) {
+//                                    Thread.currentThread().interrupt();
+//                                }
+
                                 Log.i(TAG, "音频播放完成，最终播放位置: " + audioTrack.getPlaybackHeadPosition());
-                                
+
                                 // 播放完成后调用回调
                                 if (ttsPlayCompleteCallback != null) {
                                     cordova.getActivity().runOnUiThread(() -> {
@@ -1402,7 +1431,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                                             org.json.JSONObject result = new org.json.JSONObject();
                                             result.put("type", "tts_play_complete");
                                             result.put("message", "TTS播放完成");
-                                            
+
                                             PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, result);
                                             ttsPlayCompleteCallback.sendPluginResult(pluginResult);
                                             Log.i(TAG, "TTS播放完成回调已发送");
@@ -1411,13 +1440,23 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                                         }
                                     });
                                 }
-                                
+
                                 // 播放完成后重置TTS运行状态，为下一次使用做准备
                                 isTTSRunning = false;
                                 Log.i(TAG, "TTS播放完成，已重置运行状态");
+
+                                // 检查队列中是否还有文本需要播放
+                                if (!ttsTextQueue.isEmpty()) {
+                                    Log.i(TAG, "队列中还有 " + ttsTextQueue.size() + " 个文本等待播放，继续处理");
+                                    isTTSProcessingQueue = false;
+                                    processTTSQueue();
+                                } else {
+                                    isTTSProcessingQueue = false;
+                                    Log.i(TAG, "TTS队列为空，停止处理");
+                                }
                                 break;
                             }
-                            Thread.sleep(10);
+                            //Thread.sleep(10);
                         }
                     }
                 } catch (InterruptedException e) {
@@ -1463,7 +1502,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
 
         // 清空音频队列
         ttsAudioQueue.clear();
-        
+
         // 清理播放完成回调
         if (ttsPlayCompleteCallback != null) {
             cordova.getActivity().runOnUiThread(() -> {
@@ -1471,7 +1510,7 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
                     org.json.JSONObject result = new org.json.JSONObject();
                     result.put("type", "tts_play_stopped");
                     result.put("message", "TTS播放已停止");
-                    
+
                     PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, result);
                     ttsPlayCompleteCallback.sendPluginResult(pluginResult);
                     Log.i(TAG, "TTS播放停止回调已发送");

@@ -123,6 +123,10 @@ typedef NS_ENUM(NSInteger, AISpeechTranscriberState) {
 @property BOOL isTTSFinishSend;
 @property NSString *currentTTSSessionId;
 @property BOOL shouldStopSendingTTS;
+
+// TTS文本队列（用于顺序播放多个句子）
+@property NSMutableArray<NSString *> *ttsTextQueue;
+@property BOOL isTTSProcessingQueue;
 /** 代理对象 */
 @property (nonatomic, weak, nullable) id<AISpeechTranscriberDelegate> delegate;
 /** 当前转写状态 */
