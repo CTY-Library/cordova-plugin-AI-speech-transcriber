@@ -858,38 +858,42 @@ static BOOL save_log = NO;
         [_ttsTextQueue removeObjectAtIndex:0];
         NSLog(@"开始播放队列中的文本: %@，剩余: %lu", text, (unsigned long)_ttsTextQueue.count);
         
-        // 重新启动TTS实例
-        NSString *ticket = [self genTTSTicket];
-        NSString *parameters = [self genTTSParameters];
-        
-        int startRet = [_ttsNui startStreamInputTts:[ticket UTF8String]
-                                       parameters:[parameters UTF8String]
-                                        sessionId:[@"" UTF8String]
-                                         logLevel:NUI_LOG_LEVEL_DEBUG
-                                          saveLog:save_log];
-        
-        if (startRet != 0) {
-            NSLog(@"TTS instance restart failed with code: %d", startRet);
-            _isTTSProcessingQueue = NO;
-            // 尝试播放下一个
-            [self processTTSQueue];
-            return;
+        // 仅在未运行时启动会话，避免每句都重连导致首句/句间等待变长
+        if (!_isTTSRunning) {
+            NSString *ticket = [self genTTSTicket];
+            NSString *parameters = [self genTTSParameters];
+
+            int startRet = [_ttsNui startStreamInputTts:[ticket UTF8String]
+                                           parameters:[parameters UTF8String]
+                                            sessionId:[@"" UTF8String]
+                                             logLevel:NUI_LOG_LEVEL_DEBUG
+                                              saveLog:save_log];
+
+            if (startRet != 0) {
+                NSLog(@"TTS instance start failed with code: %d", startRet);
+                _isTTSProcessingQueue = NO;
+                // 尝试播放下一个
+                [self processTTSQueue];
+                return;
+            }
+
+            NSLog(@"TTS instance started successfully");
+            _isTTSRunning = YES;
         }
-        
-        NSLog(@"TTS instance restarted successfully");
-        _isTTSRunning = YES;
         
         // 发送文本进行语音合成
         int ret = [_ttsNui sendStreamInputTts:[text UTF8String]];
         if (ret == 0) {
             NSLog(@"TTS text sent successfully: %@", text);
             
-            // 发送完成后立即调用stop接口，表示发送结束
-            int stopRet = [_ttsNui stopStreamInputTts];
-            if (stopRet == 0) {
-                NSLog(@"TTS stop interface called successfully");
-            } else {
-                NSLog(@"TTS stop interface failed with code: %d", stopRet);
+            // 当队列空时再stop，减少句间重建会话带来的停顿
+            if (_ttsTextQueue.count == 0) {
+                int stopRet = [_ttsNui stopStreamInputTts];
+                if (stopRet == 0) {
+                    NSLog(@"TTS stop interface called successfully");
+                } else {
+                    NSLog(@"TTS stop interface failed with code: %d", stopRet);
+                }
             }
         } else {
             NSLog(@"TTS text send failed with code: %d", ret);
@@ -1193,15 +1197,14 @@ static BOOL save_log = NO;
     
     // 重置播放状态
     _isTTSPlaying = NO;
-    _isTTSRunning = NO;
     _isTTSFinishSend = NO;
     NSLog(@"TTS playback finished, state reset for next use");
     
-    // 等待一小段时间确保音频完全播放完毕
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    // 缩短固定等待，降低句间停顿
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.03 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         NSLog(@"TTS audio buffer cleared, sending completion callback");
         
-        // 发送播放完成回调给前端
+        // 发送播放完成回调给前端（每次播放完一句都回调）
         if (self->_ttsPlayCompleteCallbackId) {
             NSDictionary *resultDict = @{
                 @"type": @"tts_play_complete",
@@ -1209,13 +1212,12 @@ static BOOL save_log = NO;
             };
             
             CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:resultDict];
-            [pluginResult setKeepCallbackAsBool:NO]; // 播放完成后关闭回调通道
+            [pluginResult setKeepCallbackAsBool:YES]; // 保持回调通道打开，以便后续回调
             
             [self.commandDelegate sendPluginResult:pluginResult callbackId:self->_ttsPlayCompleteCallbackId];
             NSLog(@"TTS播放完成回调已发送");
             
-            // 清理回调ID
-            self->_ttsPlayCompleteCallbackId = nil;
+            // 注意：不清理回调ID，保持通道打开以便后续播放完成时继续回调
         }
         
         // 检查队列中是否还有文本需要播放
@@ -1224,6 +1226,11 @@ static BOOL save_log = NO;
             [self processTTSQueue];
         } else {
             self->_isTTSProcessingQueue = NO;
+            if (self->_isTTSRunning && self->_ttsNui != NULL) {
+                int stopRet = [self->_ttsNui stopStreamInputTts];
+                NSLog(@"队列清空后停止TTS会话，返回: %d", stopRet);
+            }
+            self->_isTTSRunning = NO;
             NSLog(@"TTS队列为空，停止处理");
         }
     });
