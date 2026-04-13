@@ -2,6 +2,10 @@ package com.plugin.aliyun.aispeech;
 
 import android.Manifest;
 import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
+import android.provider.Settings;
+import android.app.Activity;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.media.AudioFormat;
@@ -20,6 +24,7 @@ import android.widget.Switch;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.app.AlertDialog;
 import androidx.core.app.ActivityCompat;
 
 import com.alibaba.fastjson.JSON;
@@ -175,6 +180,8 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
     private HandlerThread workerThread;
     private Handler workerHandler;
     // Cordova 回调上下文
+    // 用于 init 时保存回调，以便在申请权限后继续初始化
+    private CallbackContext initCallback;
     private CallbackContext transcribeCallback;
     private CallbackContext ttsCallback;
     private CallbackContext ttsPlayCompleteCallback;
@@ -249,14 +256,12 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
     }
 
     // ====================== SDK 初始化 ======================
-    // 1. 新增文件权限数组（合并录音+文件权限）
-    private static final String[] ALL_PERMISSIONS = {
+        // 1. 权限数组 — 仅保留录音权限（已移除存储权限）
+        private static final String[] ALL_PERMISSIONS = {
             Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.READ_EXTERNAL_STORAGE,
-            Manifest.permission.WRITE_EXTERNAL_STORAGE,
-
-    };
-    private static final int PERMISSION_REQUEST_CODE = 1001;
+        };
+        // 使用独立请求码，避免与单个权限请求码冲突
+        private static final int PERMISSION_REQUEST_CODE = 2001;
     private void initSDK(org.json.JSONObject config, CallbackContext callbackContext) throws PackageManager.NameNotFoundException, org.json.JSONException {
 
         String version = nui_instance.GetVersion();
@@ -285,6 +290,8 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
 
             if (!hasAllPermission) {
                 // 申请所有必要权限
+                // 保存 init 回调，权限回调后继续初始化
+                initCallback = callbackContext;
                 PermissionHelper.requestPermissions(this, PERMISSION_REQUEST_CODE, ALL_PERMISSIONS);
                 return;
             }
@@ -542,6 +549,82 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
     @Override
     public void onRequestPermissionResult(int requestCode, String[] permissions, int[] grantResults) throws org.json.JSONException {
         super.onRequestPermissionResult(requestCode, permissions, grantResults);
+        // 处理一次性申请的多个权限结果
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            boolean allGranted = true;
+            if (grantResults == null || grantResults.length == 0) {
+                allGranted = false;
+            } else {
+                for (int r : grantResults) {
+                    if (r != PackageManager.PERMISSION_GRANTED) {
+                        allGranted = false;
+                        break;
+                    }
+                }
+            }
+
+            if (allGranted) {
+                Log.i(TAG, "所有必要权限已授予，继续初始化");
+                initSDKAfterPermissionGranted();
+            } else {
+                Log.e(TAG, "必要权限被拒绝，询问用户是否重试或打开设置");
+
+                // 判断是否应显示权限请求说明（用户未勾选不再询问）
+                final Activity activity = cordova.getActivity();
+                boolean shouldShowRationale = false;
+                if (permissions != null) {
+                    for (String perm : permissions) {
+                        if (ActivityCompat.shouldShowRequestPermissionRationale(activity, perm)) {
+                            shouldShowRationale = true;
+                            break;
+                        }
+                    }
+                }
+
+                final CallbackContext cb = initCallback;
+                if (shouldShowRationale) {
+                    // 可以重试，提示用户并再次请求权限
+                    activity.runOnUiThread(() -> {
+                        new AlertDialog.Builder(activity)
+                                .setTitle("需要权限")
+                                .setMessage("插件需要录音和存储权限以继续，是否重新授权？")
+                                .setPositiveButton("重新授权", (dialog, which) -> {
+                                    PermissionHelper.requestPermissions(AISpeechTranscriber.this, PERMISSION_REQUEST_CODE, ALL_PERMISSIONS);
+                                })
+                                .setNegativeButton("取消", (dialog, which) -> {
+                                    if (cb != null) cb.error("拒绝必要权限将无法初始化插件，请授予存储和录音权限");
+                                    initCallback = null;
+                                })
+                                .setCancelable(false)
+                                .show();
+                    });
+                } else {
+                    // 用户可能选择了不再提示，指引用户到设置页手动开启权限
+                    activity.runOnUiThread(() -> {
+                        new AlertDialog.Builder(activity)
+                                .setTitle("缺少权限")
+                                .setMessage("您已拒绝必要权限或选择不再提示，请到应用设置中手动开启录音与存储权限。")
+                                .setPositiveButton("打开设置", (dialog, which) -> {
+                                    try {
+                                        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                                        Uri uri = Uri.fromParts("package", activity.getPackageName(), null);
+                                        intent.setData(uri);
+                                        activity.startActivity(intent);
+                                    } catch (Exception e) {
+                                        Log.e(TAG, "打开设置界面失败", e);
+                                    }
+                                })
+                                .setNegativeButton("取消", (dialog, which) -> {
+                                    if (cb != null) cb.error("拒绝必要权限将无法初始化插件，请授予存储和录音权限");
+                                    initCallback = null;
+                                })
+                                .setCancelable(false)
+                                .show();
+                    });
+                }
+            }
+            return;
+        }
         if (requestCode == PERMISSION_RECORD_AUDIO) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 //startTranscription(transcribeCallback);
@@ -579,16 +662,25 @@ public class AISpeechTranscriber extends CordovaPlugin implements INativeNuiCall
 
             if (initResult == Constants.NuiResultCode.SUCCESS) {
                 isSdkInitialized = true;
-                transcribeCallback.success("SDK 初始化成功");
+                if (initCallback != null) {
+                    initCallback.success("SDK 初始化成功");
+                    initCallback = null;
+                }
                 Log.i(TAG, "SDK 初始化完成");
             } else {
-                isSdkInitialized = true;//todo
+                isSdkInitialized = false;
                 String errorMsg = CommonUtils.getMsgWithErrorCode(initResult, "初始化");
-                //transcribeCallback.error("SDK 初始化失败：" + errorMsg);
+                if (initCallback != null) {
+                    initCallback.error("SDK 初始化失败：" + errorMsg);
+                    initCallback = null;
+                }
                 Log.e(TAG, "SDK 初始化失败：" + errorMsg);
             }
         } catch (Exception e) {
-            //transcribeCallback.error("SDK 初始化异常：" + e.getMessage());
+            if (initCallback != null) {
+                initCallback.error("SDK 初始化异常：" + e.getMessage());
+                initCallback = null;
+            }
             Log.e(TAG, "SDK 初始化异常", e);
         }
         //});
