@@ -56,9 +56,9 @@ static BOOL save_log = NO;
         // 初始化SDK实例
         [self initNuiWithAppKey:_mappkey
                         token:token
-                     accessKey:accessKey 
-                accessKeySecret:accessKeySecret 
-                      stsToken:stsToken 
+                     accessKey:accessKey
+                accessKeySecret:accessKeySecret
+                      stsToken:stsToken
                      serviceUrl:_mserviceurl
                      saveAudio:saveAudio];
         
@@ -105,7 +105,6 @@ static BOOL save_log = NO;
 
 - (void)stopTranscribe:(CDVInvokedUrlCommand *)command {
     CDVPluginResult *pluginResult = nil;
-    self.transcribeCallbackId = command.callbackId;
     @try {
         if (!self.isTranscribing) {
             pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"未在转写中，无需停止"];
@@ -118,6 +117,11 @@ static BOOL save_log = NO;
         
         // 停止成功
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"转写已停止"];
+        // 主动通知原始 startTranscribe 的回调：先发送 stop 事件字典，再发送一个简单的 OK 字符串，随后清理回调ID
+        if (self.transcribeCallbackId) {
+            [self sendCallbackToJS:@"stop" message:@"转写停止"];
+      
+        }
     } @catch (NSException *exception) {
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:[NSString stringWithFormat:@"停止转写失败：%@", exception.reason]];
     }
@@ -284,12 +288,12 @@ static BOOL save_log = NO;
 
 #pragma mark - Private Methods
 
-- (void)initNuiWithAppKey:(NSString *)appKey 
-                   token:(NSString *)token 
-                accessKey:(NSString *)accessKey 
-          accessKeySecret:(NSString *)accessKeySecret 
-                stsToken:(NSString *)stsToken 
-               serviceUrl:(NSString *)serviceUrl 
+- (void)initNuiWithAppKey:(NSString *)appKey
+                   token:(NSString *)token
+                accessKey:(NSString *)accessKey
+          accessKeySecret:(NSString *)accessKeySecret
+                stsToken:(NSString *)stsToken
+               serviceUrl:(NSString *)serviceUrl
                saveAudio:(BOOL)saveAudio {
     
     if (_nui == NULL) {
@@ -302,11 +306,11 @@ static BOOL save_log = NO;
     save_log = saveAudio;
     
     // 请注意此处的参数配置，其中账号相关需要按照genInitParams的说明填入后才可访问服务
-    NSString *initParam = [self genInitParamsWithAppKey:appKey 
-                                          token:token 
-                                       accessKey:accessKey 
-                                 accessKeySecret:accessKeySecret 
-                                       stsToken:stsToken 
+    NSString *initParam = [self genInitParamsWithAppKey:appKey
+                                          token:token
+                                       accessKey:accessKey
+                                 accessKeySecret:accessKeySecret
+                                       stsToken:stsToken
                                       serviceUrl:serviceUrl];
     
     //请注意此处的参数配置，其中账号相关需要按照genInitParams的说明填入后才可访问服务
@@ -346,7 +350,7 @@ static BOOL save_log = NO;
             [pluginResult setKeepCallbackAsBool:YES];
             [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
         } else {
-            CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR 
+            CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR
                                                               messageAsString:[NSString stringWithFormat:@"启动转写失败，错误码：%d", ret]];
             [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
         }
@@ -438,11 +442,11 @@ static BOOL save_log = NO;
 
 #pragma mark - Parameter Generation Methods
 
-- (NSString*)genInitParamsWithAppKey:(NSString *)appKey 
-                            token:(NSString *)token 
-                         accessKey:(NSString *)accessKey 
-                   accessKeySecret:(NSString *)accessKeySecret 
-                         stsToken:(NSString *)stsToken 
+- (NSString*)genInitParamsWithAppKey:(NSString *)appKey
+                            token:(NSString *)token
+                         accessKey:(NSString *)accessKey
+                   accessKeySecret:(NSString *)accessKeySecret
+                         stsToken:(NSString *)stsToken
                         serviceUrl:(NSString *)serviceUrl {
     
     //    NSString *strResourcesBundle = [[NSBundle mainBundle] pathForResource:@"Resources" ofType:@"bundle"];
@@ -535,11 +539,11 @@ static BOOL save_log = NO;
 //    [nls_config setValue:@YES forKey:@"enable_punctuation_prediction"];
 //    [nls_config setValue:@16000 forKey:@"sample_rate"];
 //    [nls_config setValue:@"opus" forKey:@"sr_format"];
-//    
+//
 //    NSMutableDictionary *dictM = [NSMutableDictionary dictionary];
 //    [dictM setObject:nls_config forKey:@"nls_config"];
 //    [dictM setValue:@(SERVICE_TYPE_SPEECH_TRANSCRIBER) forKey:@"service_type"]; // 必填
-//    
+//
 //    NSData *data = [NSJSONSerialization dataWithJSONObject:dictM options:NSJSONWritingPrettyPrinted error:nil];
 //    NSString *jsonStr = [[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding];
     return jsonStr;
@@ -576,7 +580,7 @@ static BOOL save_log = NO;
         NSLog(@"%@", startedInfo);
         [self sendCallbackToJS:@"start" message:startedInfo];
     } else if (nuiEvent == EVENT_TRANSCRIBER_COMPLETE) {
-        [self sendCallbackToJS:@"complete" message:@"转写完成"];
+        [self sendCallbackToJS:@"complete" message:@"state has stopped!"];
     } else if (nuiEvent == EVENT_ASR_PARTIAL_RESULT || nuiEvent == EVENT_SENTENCE_END) {
         // asr_result在此包含task_id，task_id有助于排查问题，请用户进行记录保存。
         NSLog(@"ASR RESULT %s finish %d", asr_result, finish);
@@ -588,6 +592,7 @@ static BOOL save_log = NO;
     } else if (nuiEvent == EVENT_VAD_END) {
         NSLog(@"EVENT_VAD_END");
         [self sendCallbackToJS:@"vad_end" message:@"检测到语音结束"];
+    
     } else if (nuiEvent == EVENT_ASR_ERROR) {
         // asr_result在EVENT_ASR_ERROR中为错误信息，搭配错误码code和其中的task_id更易排查问题，请用户进行记录保存。
         NSLog(@"EVENT_ASR_ERROR error[%d]", code);
@@ -606,6 +611,7 @@ static BOOL save_log = NO;
     if (finish) {
         self.isTranscribing = NO;
         [self sendCallbackToJS:@"stop" message:@"转写停止"];
+  
     }
 }
 
@@ -666,6 +672,14 @@ static BOOL save_log = NO;
 
 - (void)sendCallbackToJS:(NSString *)type message:(NSString *)message {
     if (self.transcribeCallbackId) {
+        
+        if([type isEqualToString:@"complete"] ){ // android
+            CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"OK"];
+            [pluginResult setKeepCallbackAsBool:YES]; // 保持回调，持续返回结果
+            [self.commandDelegate sendPluginResult:pluginResult callbackId:self.transcribeCallbackId];
+            return;
+        }
+        
         NSDictionary *resultDict = @{
             @"type": type, // start/partial/complete/error/info/stop/vad_start/vad_end
             @"message": message,
@@ -677,7 +691,7 @@ static BOOL save_log = NO;
         
         [self.commandDelegate sendPluginResult:pluginResult callbackId:self.transcribeCallbackId];
         
-        // 如果是最终结果或错误，结束持续回调
+        // 如果是最终结果或错误，结束持续回调（不在这里发送额外的字符串 OK，由 finish/VAD 等分支统一负责）
         if ([type isEqualToString:@"complete"] || [type isEqualToString:@"error"] || [type isEqualToString:@"stop"]) {
             [pluginResult setKeepCallbackAsBool:NO];
             [self.commandDelegate sendPluginResult:pluginResult callbackId:self.transcribeCallbackId];
@@ -1364,3 +1378,4 @@ static BOOL save_log = NO;
 }
 
 @end
+
