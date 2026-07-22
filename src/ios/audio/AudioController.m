@@ -580,6 +580,19 @@ static OSStatus PlayCallback(
     AVAudioSessionCategoryOptions options = AVAudioSessionCategoryOptionDefaultToSpeaker | AVAudioSessionCategoryOptionAllowBluetooth;
     [self setAudioCategoryWithOptions:options error:nil];
 
+    // 关键点：每次重新启动录音前必须显式激活 AVAudioSession，
+    // 否则在第一次录音结束后，Session 可能被系统/其他模块置为 inactive，
+    // 导致 RemoteIO 回调不触发、_recordedVoiceData 一直为空。
+    NSError *activeError = nil;
+    BOOL active = [audioSession setActive:YES
+                             withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation
+                                   error:&activeError];
+    if (!active) {
+        NSLog(@"audiorecorder: setActive:YES failed: %@, try deactivate then activate", activeError);
+        [audioSession setActive:NO withOptions:0 error:nil];
+        [audioSession setActive:YES withOptions:0 error:&activeError];
+    }
+
     // BOOL isHeadsetMic = false;
     // NSArray* inputs = [audioSession availableInputs];
     
@@ -947,9 +960,20 @@ static OSStatus PlayCallback(
 -(void)_audioSessionInterruptionHandle:(NSNotification *)sender {
     NSLog(@"audiorecorder: _audioSessionInterruptionHandle");
     if ([sender.userInfo[AVAudioSessionInterruptionTypeKey] intValue] == AVAudioSessionInterruptionTypeBegan) {
-        //pause session
+        // 音频会话被系统打断（如来电），RemoteIO 会停止回调，这里同步状态
+        if (recorder_state == RECORDER_STATE_START) {
+            recorder_state = RECORDER_STATE_STOP;
+            AudioOutputUnitStop(mRecordUnit);
+        }
     } else if ([sender.userInfo[AVAudioSessionInterruptionTypeKey] intValue] == AVAudioSessionInterruptionTypeEnded) {
-        //Continue
+        // 打断结束，恢复 Session 并在之前正在录音的状态下重启录音
+        BOOL shouldResume = [sender.userInfo[AVAudioSessionInterruptionOptionKey] intValue] & AVAudioSessionInterruptionOptionShouldResume;
+        if (shouldResume) {
+            NSError *error = nil;
+            [[AVAudioSession sharedInstance] setActive:YES withOptions:0 error:&error];
+            if (error) NSLog(@"audiorecorder: resume setActive failed: %@", error);
+            [self startRecorder];
+        }
     }
 }
 

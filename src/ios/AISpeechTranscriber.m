@@ -382,7 +382,9 @@ static BOOL save_log = NO;
     _recordedVoiceData = nil;
     
     if (_audioController != nil) {
+        [_audioController stopRecorder:NO];
         _audioController.delegate = nil;
+        _audioController = nil;
     }
     
     _utils = nil;
